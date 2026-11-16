@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Art } from "@/components/Art";
 import { EventRow } from "@/components/ui";
 import { listEvents, SPORTS, type Sport, type Status } from "@/lib/data";
 import { LAUNCH_SPORTS } from "@/lib/sports";
@@ -78,12 +79,15 @@ export default async function TournamentsPage({ searchParams }: Props) {
           )}
         </>
       ) : (
-        <div className="mt-10 max-w-md">
+        <div className="mt-10 flex max-w-xl items-start gap-5">
+          <Art name="trophy" size={96} />
+          <div>
           <p className="text-lg">{sport || status || page ? "Nothing matches those filters yet." : "No tournaments coming up yet."}</p>
           <p className="mt-1 text-muted">{sport || status ? "Clear a filter, or be the first to run one." : "Be the first to run one."}</p>
           <Link href="/organise/new" className="mt-4 inline-block rounded-md bg-ink px-5 py-3 font-semibold text-chalk hover:bg-pitch">
             Create a tournament
           </Link>
+          </div>
         </div>
       )}
     </div>

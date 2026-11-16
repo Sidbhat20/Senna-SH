@@ -1,13 +1,14 @@
 import Link from "next/link";
+import { Art } from "@/components/Art";
 import { Bracket } from "@/components/Bracket";
 import { EventRow } from "@/components/ui";
 import { featuredEvent, listEvents } from "@/lib/data";
 
 const STEPS = [
-  { title: "Publish", body: "Pick a sport, a format and a date. Your tournament gets its own page to share on WhatsApp." },
-  { title: "Collect entries", body: "Captains register their team and invite players with a link. Solo players sign up themselves." },
-  { title: "Draw fixtures", body: "One tap seeds the bracket or league, byes included. Re-draw any time before the first match." },
-  { title: "Score live", body: "Referees update the score from their phone. Brackets and tables move on by themselves." },
+  { art: "calendar" as const, title: "Publish", body: "Pick a sport, a format and a date. Your tournament gets its own page to share on WhatsApp." },
+  { art: "notes" as const, title: "Collect entries", body: "Captains register their team and invite players with a link. Solo players sign up themselves." },
+  { art: "pen" as const, title: "Draw fixtures", body: "One tap seeds the bracket or league, byes included. Re-draw any time before the first match." },
+  { art: "phone" as const, title: "Score live", body: "Referees update the score from their phone. Brackets and tables move on by themselves." },
 ];
 
 export default async function Home() {
@@ -59,9 +60,15 @@ export default async function Home() {
             {open.map((t) => <EventRow key={t.slug} t={t} />)}
           </ul>
         ) : (
-          <p className="mt-3 max-w-prose text-muted">
-            Nothing is taking entries right now. Run the first one: it takes two minutes to set up.
-          </p>
+          <div className="mt-4 flex max-w-xl items-center gap-5">
+            <Art name="trophy" size={96} />
+            <div>
+              <p className="text-lg">Nothing is taking entries right now.</p>
+              <Link href="/organise/new" className="mt-1 inline-block font-semibold text-turf-dark underline-offset-4 hover:underline">
+                Run the first one, it takes two minutes
+              </Link>
+            </div>
+          </div>
         )}
         <Link href="/tournaments" className="mt-4 inline-block font-medium text-turf-dark underline-offset-4 hover:underline">
           See all tournaments
@@ -73,9 +80,9 @@ export default async function Home() {
           Running a tournament? Stop managing it on a spreadsheet.
         </h2>
         <ol className="mt-8 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-          {STEPS.map((s, i) => (
-            <li key={s.title} className="border-t-2 border-ink pt-4">
-              <div className="tabular font-display text-4xl font-bold text-turf">{i + 1}</div>
+          {STEPS.map((s) => (
+            <li key={s.title} className="pt-2">
+              <Art name={s.art} size={112} />
               <h3 className="mt-1 font-display text-xl font-semibold">{s.title}</h3>
               <p className="mt-1 text-[15px] leading-relaxed text-muted">{s.body}</p>
             </li>

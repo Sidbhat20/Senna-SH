@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Art } from "@/components/Art";
 import { date, sportName, StatusPill } from "@/components/ui";
 import { myEvents, type MyEvent } from "@/lib/data";
 
@@ -57,12 +58,15 @@ export default async function OrganiserHome() {
       </div>
 
       {none ? (
-        <div className="mt-10 max-w-prose">
+        <div className="mt-10 flex max-w-2xl items-start gap-6">
+          <Art name="trophy" size={120} />
+          <div>
           <p className="text-lg">You haven&apos;t run a tournament here yet.</p>
           <p className="mt-2 text-muted">
             Create one in about two minutes: pick the sport and categories, set your courts, and share the page. Entries, draws,
             the order of play and live scores all run from here.
           </p>
+          </div>
         </div>
       ) : (
         <>

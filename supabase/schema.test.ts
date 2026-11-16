@@ -649,7 +649,7 @@ describe("schema", () => {
   it("UPI: players report their UTR; only managers see it; the organiser confirms", async () => {
     const { event, category } = await newCategory("knockout", "solo", 4, 500);
     await expect(as(ORG, () => q("select set_upi_id($1, 'not a upi')", [event]))).rejects.toThrow(/check constraint/);
-    await expect(as(U[2], () => q("select set_upi_id($1, 'thief@ybl')", [event]))).rejects.toThrow(/organisers/);
+    await expect(as(U[2], () => q("select set_upi_id($1, 'thief@ybl')", [event]))).rejects.toThrow(/owner/);
     await as(ORG, () => q("select set_upi_id($1, 'smash@okhdfcbank')", [event]));
     const a = await register(U[1], category);
 
@@ -664,6 +664,20 @@ describe("schema", () => {
 
     await as(ORG, () => q("update entries set status = 'confirmed', payment_status = 'paid' where id = $1", [a]));
     await expect(as(U[1], () => q("select claim_payment($1, '412345678999')", [a]))).rejects.toThrow(/doesn't have a fee waiting/);
+  });
+
+  it("UPI fixes: only the owner sets the UPI ID; a UTR can't back two entries in one event", async () => {
+    const { event, category } = await newCategory("knockout", "solo", 4, 500);
+    const { t } = await as(ORG, () => one<{ t: string }>("select create_staff_invite($1, 'Co') as t", [event]));
+    await as(U[8], () => q("select join_staff($1)", [t]));
+    await expect(as(U[8], () => q("select set_upi_id($1, 'co@ybl')", [event]))).rejects.toThrow(/owner/);
+    await as(ORG, () => q("select set_upi_id($1, 'owner@okhdfcbank')", [event]));
+
+    const a = await register(U[1], category);
+    const b = await register(U[2], category);
+    await as(U[1], () => q("select claim_payment($1, '412345678901')", [a]));
+    await expect(as(U[2], () => q("select claim_payment($1, '412345678901')", [b]))).rejects.toThrow(/already been used/);
+    await as(U[1], () => q("select claim_payment($1, '412345678901')", [a])); // resending your own UTR is fine
   });
 });
 

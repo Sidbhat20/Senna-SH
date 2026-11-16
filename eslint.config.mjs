@@ -16,6 +16,7 @@ const eslintConfig = [
       "node_modules/**",
       ".next/**",
       ".next-build/**",
+      "src/stickers/**", // vendored fun-isometric kit, kept as shipped
       "out/**",
       "build/**",
       "next-env.d.ts",
