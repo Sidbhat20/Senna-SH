@@ -5,6 +5,7 @@ import { gamesText } from "@/lib/fixtures/scoring";
 import { BYE } from "@/lib/fixtures/types";
 import { SPORTS, type Category, type EventSummary, type Status } from "@/lib/data";
 import type { DbMatch } from "@/lib/data";
+import { scoreUnits } from "@/lib/sports";
 import { currentUser } from "@/lib/supabase/server";
 
 const fmtDate = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
@@ -22,8 +23,12 @@ export const ageLimitText = (c: Pick<Category, "bornOnOrAfter" | "bornOnOrBefore
   c.bornOnOrAfter ? `Born on or after ${fmtDay.format(new Date(c.bornOnOrAfter))}`
   : c.bornOnOrBefore ? `Born on or before ${fmtDay.format(new Date(c.bornOnOrBefore))}` : "";
 /** "Best of 3 games to 21" for racquet sports, "" for goals. */
-export const scoringText = (c: Pick<Category, "scoring">) =>
-  c.scoring.kind === "games" ? (c.scoring.bestOf === 1 ? `One game to ${c.scoring.pointsTo}` : `Best of ${c.scoring.bestOf} games to ${c.scoring.pointsTo}`) : "";
+export function scoringText(c: Pick<Category, "scoring">, sport: EventSummary["sport"]) {
+  if (c.scoring.kind !== "games") return "";
+  const u = scoreUnits(sport);
+  const to = u.point === "game" ? `${c.scoring.pointsTo} games a set` : `to ${c.scoring.pointsTo}`;
+  return c.scoring.bestOf === 1 ? `One ${u.part}, ${to}` : `Best of ${c.scoring.bestOf} ${u.part}s, ${to}`;
+}
 export const perEntry = (c: Pick<Category, "entryFee" | "entryType">) =>
   c.entryFee === 0 ? "Free entry" : `${rupees(c.entryFee)} per ${c.entryType === "team" ? "team" : "player"}`;
 /** "Free", "₹500" or "From ₹300" across an event's categories. */

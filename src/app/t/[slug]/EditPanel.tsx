@@ -1,4 +1,4 @@
-import { addCourt, cancelEvent, closeAllEntries, renameCourt, setCategoryStatus, updateEvent } from "@/app/actions";
+import { addCourt, addRegField, cancelEvent, closeAllEntries, removeRegField, renameCourt, setCategoryStatus, updateEvent } from "@/app/actions";
 import { ActionForm } from "@/components/ActionForm";
 import { PosterUpload } from "@/components/PosterUpload";
 import type { EventDetail } from "@/lib/data";
@@ -87,6 +87,44 @@ export function EditPanel({ ev }: { ev: EventDetail }) {
             <button className={`${btn} bg-turf text-white hover:bg-turf-dark`}>Save details</button>
           </div>
         </ActionForm>
+      </section>
+
+      <section aria-labelledby="questions">
+        <h2 id="questions" className="font-display text-3xl font-bold">Registration questions</h2>
+        <p className="max-w-prose text-muted">Ask every player something extra, like a T-shirt size. Answers show only to organisers, in the entries download.</p>
+        {ev.regFields.length > 0 && (
+          <ul className="mt-3 max-w-2xl divide-y divide-line">
+            {ev.regFields.map((q) => (
+              <li key={q.key} className="flex flex-wrap items-center gap-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <span className="font-semibold">{q.label}</span>
+                  <span className="text-[14px] text-muted">
+                    {" "}{q.type === "choice" ? `(${q.options!.join(", ")})` : q.type === "date" ? "(a date)" : "(text)"}{q.required ? ", required" : ", optional"}
+                  </span>
+                </div>
+                <ActionForm action={removeRegField} values={{ ...hidden, key: q.key }}>
+                  <button className="h-10 rounded-lg px-3 text-[15px] font-semibold text-danger hover:bg-danger/10">Remove</button>
+                </ActionForm>
+              </li>
+            ))}
+          </ul>
+        )}
+        {ev.regFields.length < 10 && (
+          <ActionForm action={addRegField} values={hidden} showOk className="mt-3 max-w-2xl">
+            <div className="w-full space-y-3 rounded-xl border border-line bg-white p-4">
+              <input name="label" required maxLength={60} placeholder="Question, e.g. T-shirt size" aria-label="Question" className={`${box} mt-0`} />
+              <fieldset className="flex flex-wrap gap-4">
+                <legend className="sr-only">Kind of answer</legend>
+                {[["text", "Text"], ["date", "A date"], ["choice", "Pick from options"]].map(([v, l]) => (
+                  <label key={v} className="flex items-center gap-2"><input type="radio" name="type" value={v} defaultChecked={v === "text"} /> {l}</label>
+                ))}
+              </fieldset>
+              <input name="options" maxLength={400} placeholder="Options, separated by commas (for Pick from options): S, M, L, XL" aria-label="Options" className={`${box} mt-0`} />
+              <label className="flex items-center gap-2"><input type="checkbox" name="required" value="yes" /> Players must answer</label>
+              <button className={`${btn} bg-ink text-chalk`}>Add question</button>
+            </div>
+          </ActionForm>
+        )}
       </section>
 
       <section aria-labelledby="poster">

@@ -28,7 +28,7 @@ export type EntryType = "solo" | "pair" | "team";
 export type Scoring = { kind: "games"; bestOf: 1 | 3 | 5; pointsTo: number; cap: number | null } | { kind: "goals" };
 
 /** The sports organisers can pick today. The rest stay in the database enum for later. */
-export const LAUNCH_SPORTS: Sport[] = ["badminton", "table_tennis", "pickleball", "football"];
+export const LAUNCH_SPORTS: Sport[] = ["badminton", "table_tennis", "pickleball", "tennis", "football", "volleyball"];
 
 export const SPORT_DEFAULTS: Record<Sport, { categories: string[]; teamSize: number; matchMinutes: number; racquet: boolean; scoring: Scoring }> = {
   badminton: { categories: RACQUET, teamSize: 2, matchMinutes: 25, racquet: true, scoring: { kind: "games", bestOf: 3, pointsTo: 21, cap: 30 } },
@@ -44,7 +44,16 @@ export const SPORT_DEFAULTS: Record<Sport, { categories: string[]; teamSize: num
 };
 
 /** Badminton caps deuce games (21 → 30); the others play on until someone leads by two. */
-export const capFor = (sport: Sport, pointsTo: number) => (sport === "badminton" ? pointsTo + 9 : null);
+// Badminton caps deuce at 9 over (21 -> 30). A tennis set at 6-6 goes to a tiebreak, recorded as 7-6, so it caps at 7.
+export const capFor = (sport: Sport, pointsTo: number) =>
+  sport === "badminton" ? pointsTo + 9 : sport === "tennis" ? pointsTo + 1 : null;
+
+/** What the scored pieces are called: tennis counts games within sets, volleyball points within sets. */
+export function scoreUnits(sport: Sport): { part: "game" | "set"; point: "point" | "game" } {
+  if (sport === "tennis") return { part: "set", point: "game" };
+  if (sport === "volleyball") return { part: "set", point: "point" };
+  return { part: "game", point: "point" };
+}
 
 /** Racquet categories are singles unless the name says doubles; team sports always enter as teams. */
 export function entryShape(sport: Sport, categoryName: string): { entryType: EntryType; teamSize: number } {

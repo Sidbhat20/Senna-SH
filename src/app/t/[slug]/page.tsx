@@ -11,6 +11,7 @@ import { Standings } from "@/components/Standings";
 import { ageLimitText, date, dateTime, feeRange, MatchRow, perEntry, scoringText, sportName, StatusPill, time } from "@/components/ui";
 import { FORMATS, getEvent, myEntries, refereeLinks, type CategoryDetail, type DbMatch, type EventDetail } from "@/lib/data";
 import { standings } from "@/lib/fixtures/standings";
+import { placeName, placings } from "@/lib/results";
 import { whatsappShare } from "@/lib/notify";
 import { BYE } from "@/lib/fixtures/types";
 import { EditPanel, ist } from "./EditPanel";
@@ -23,11 +24,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return t ? { title: t.title, description: `${sportName(t)} at ${t.venue}${t.area ? `, ${t.area}` : ""}. ${feeRange(t.categories)}.` } : {};
 }
 
-function champion(c: CategoryDetail): string | undefined {
-  if (c.status !== "completed") return;
-  if (c.format === "league") return standings(c.entries, c.matches)[0]?.entry;
-  return c.matches.find((m) => !m.next && (m.stage === "knockout" || m.stage === "grand_final"))?.winner;
-}
 
 const scorable = (m: DbMatch) => m.status !== "done" && m.a && m.b && m.a !== BYE && m.b !== BYE;
 
@@ -205,15 +201,27 @@ function ManageCategory({ ev, c }: { ev: EventDetail; c: CategoryDetail }) {
 }
 
 function CategoryView({ ev, c, href }: { ev: EventDetail; c: CategoryDetail; href: (m: DbMatch) => string | undefined }) {
-  const winner = champion(c);
+  const results = c.status === "completed" ? placings(c) : [];
   const bracketHref = ev.canManage ? (m: DbMatch) => href(m) ?? "" : undefined;
   return (
     <div className="space-y-10">
-      {winner && (
-        <div className="rounded-xl bg-pitch px-6 py-5 text-chalk">
-          <div className="text-[15px] text-chalk/70">{c.name} champion</div>
-          <div className="font-display text-4xl font-bold text-flood">{winner}</div>
-        </div>
+      {results.length > 0 && (
+        <section aria-labelledby={`results-${c.id}`} className="overflow-hidden rounded-xl border border-line bg-white">
+          <h2 id={`results-${c.id}`} className="bg-pitch px-6 py-3 font-display text-xl font-semibold text-chalk">{c.name} results</h2>
+          <ol className="divide-y divide-line">
+            {results.map((r) => (
+              <li key={`${r.place}-${r.name}`} className={`flex items-baseline gap-4 px-6 py-3 ${r.place === 1 ? "bg-pitch/5" : ""}`}>
+                <span className="tabular w-20 shrink-0 font-display text-lg font-bold">
+                  {placeName(r.place, results.filter((x) => x.place === r.place).length > 1)}
+                </span>
+                <span className={r.place === 1 ? "font-display text-2xl font-bold" : "text-lg"}>{r.name}</span>
+              </li>
+            ))}
+          </ol>
+          <a href={`/t/${ev.slug}/certificates?c=${c.id}`} className="block border-t border-line px-6 py-3 text-[15px] font-semibold underline-offset-4 hover:underline">
+            Certificates to print
+          </a>
+        </section>
       )}
       {c.matches.length === 0 && (
         <section>
@@ -389,7 +397,7 @@ export default async function EventPage({ params, searchParams }: Props) {
           <p className="mt-4 text-muted">
             {FORMATS[c.format].label}
             {c.format === "groups_knockout" ? ` with ${c.groupCount} groups` : ""}. {perEntry(c)}.
-            {scoringText(c) && ` ${scoringText(c)}.`}
+            {scoringText(c, ev.sport) && ` ${scoringText(c, ev.sport)}.`}
             {ageLimitText(c) && ` ${ageLimitText(c)}.`}
             {c.status === "locked" && " Entries are closed."}
             {c.status === "cancelled" && " This category is cancelled."}
@@ -441,7 +449,7 @@ export default async function EventPage({ params, searchParams }: Props) {
                       <p className="mt-1 text-[15px] text-muted">{perEntry(c)}. Entries close {dateTime(ev.regClosesAt)}.</p>
                       {left > 0 &&
                         (me.loggedIn ? (
-                          <RegisterForm category={c.id} slug={ev.slug} kind={c.entryType} aged={!!(c.bornOnOrAfter || c.bornOnOrBefore)} ageHint={ageLimitText(c)} />
+                          <RegisterForm category={c.id} slug={ev.slug} kind={c.entryType} aged={!!(c.bornOnOrAfter || c.bornOnOrBefore)} ageHint={ageLimitText(c)} fields={ev.regFields} />
                         ) : (
                           <Link href={`/login?next=${encodeURIComponent(`/t/${ev.slug}?c=${c.id}`)}`}
                             className="mt-4 block rounded-lg bg-turf px-5 py-3 text-center font-semibold text-white hover:bg-turf-dark">

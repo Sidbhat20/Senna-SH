@@ -3,6 +3,7 @@ import type { Played } from "./fixtures/advance";
 import { BYE, type StageKind } from "./fixtures/types";
 import type { EntryType, Format, Scoring, Sport } from "./sports";
 import { organiserOrder } from "./organise";
+import type { RegField } from "./reg-fields";
 import { supabaseServer } from "./supabase/server";
 
 export { FORMATS, SPORTS, type Format, type Sport } from "./sports";
@@ -42,6 +43,7 @@ export type EventSummary = {
   matchMinutes: number;
   posterUrl: string | null;
   ageCheck: "self" | "desk";
+  regFields: RegField[];
   breakMinutes: number;
   categories: Category[];
 };
@@ -84,7 +86,7 @@ type CatRow = {
 };
 type EventRow = {
   id: string; slug: string; title: string; sport: Sport; venue: string; area: string; starts_at: string; reg_closes_at: string;
-  prize: string; rules: string[]; status: Status; organiser_id: string; match_minutes: number; break_minutes: number; poster_url: string | null; age_check: "self" | "desk";
+  prize: string; rules: string[]; status: Status; organiser_id: string; match_minutes: number; break_minutes: number; poster_url: string | null; age_check: "self" | "desk"; reg_fields: RegField[];
   organiser: { name: string } | null; categories: CatRow[];
 };
 
@@ -101,7 +103,7 @@ function toEvent(r: EventRow): EventSummary {
     id: r.id, slug: r.slug, title: r.title, sport: r.sport, venue: r.venue, area: r.area, startsAt: r.starts_at,
     regClosesAt: r.reg_closes_at, prize: r.prize, rules: r.rules, status: r.status,
     organiser: r.organiser?.name || "Organiser", organiserId: r.organiser_id,
-    matchMinutes: r.match_minutes, breakMinutes: r.break_minutes, posterUrl: r.poster_url, ageCheck: r.age_check,
+    matchMinutes: r.match_minutes, breakMinutes: r.break_minutes, posterUrl: r.poster_url, ageCheck: r.age_check, regFields: r.reg_fields ?? [],
     categories: [...r.categories].sort((a, b) => a.sort - b.sort).map(toCategory),
   };
 }
@@ -341,4 +343,12 @@ export async function entryContacts(eventId: string) {
   const { data, error } = await sb.rpc("entry_contacts", { p_event: eventId });
   if (error) throw new Error(error.message);
   return new Map(((data ?? []) as { entry_id: string; email: string | null; phone: string | null }[]).map((r) => [r.entry_id, r]));
+}
+
+/** Answers to the event's registration questions, by entry. Managers only: the database refuses everyone else. */
+export async function entryAnswers(eventId: string) {
+  const sb = await supabaseServer();
+  const { data, error } = await sb.rpc("entry_answers", { p_event: eventId });
+  if (error) throw new Error(error.message);
+  return new Map(((data ?? []) as { entry_id: string; answers: Record<string, string> }[]).map((r) => [r.entry_id, r.answers]));
 }

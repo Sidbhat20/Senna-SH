@@ -504,3 +504,69 @@ describe("moving one match", () => {
     expect(findClash(ms, { id: "m2", court: "C", at: at("09:30") }, 35)).toBeNull();
   });
 });
+
+import { capFor, LAUNCH_SPORTS, scoreUnits } from "../sports";
+
+describe("tennis and volleyball", () => {
+  it("are launch sports with the right words and caps", () => {
+    expect(LAUNCH_SPORTS).toEqual(expect.arrayContaining(["tennis", "volleyball"]));
+    expect(scoreUnits("tennis")).toEqual({ part: "set", point: "game" });
+    expect(scoreUnits("volleyball")).toEqual({ part: "set", point: "point" });
+    expect(scoreUnits("badminton")).toEqual({ part: "game", point: "point" });
+    expect([capFor("tennis", 6), capFor("badminton", 21), capFor("volleyball", 25)]).toEqual([7, 30, null]);
+  });
+  it("a tennis match is won in sets, including a tiebreak set", () => {
+    const r = { bestOf: 3, pointsTo: 6, cap: capFor("tennis", 6) };
+    expect(matchState([[6, 4], [6, 7], [7, 6]], r)).toEqual({ a: 2, b: 1, winner: "a" });
+  });
+});
+
+import { answersFrom, fieldKey } from "../reg-fields";
+
+describe("registration questions", () => {
+  it("makes stable, unique keys from labels", () => {
+    expect(fieldKey("T-shirt size", [])).toBe("t_shirt_size");
+    expect(fieldKey("T-shirt size!", ["t_shirt_size"])).toBe("t_shirt_size_2");
+    expect(fieldKey("??", [])).toBe("question");
+  });
+  it("collects only the event's questions from a form", () => {
+    const fields = [{ key: "tshirt", label: "T-shirt", type: "choice" as const, options: ["S", "M"], required: true },
+      { key: "note", label: "Note", type: "text" as const, required: false }];
+    const form: Record<string, string> = { q_tshirt: "M", q_note: "  ", q_other: "x" };
+    expect(answersFrom(fields, (k) => form[k])).toEqual({ tshirt: "M" });
+  });
+});
+
+import { placings } from "../results";
+
+describe("results", () => {
+  const win = (seeds: string[]) => (a: string, b: string) => (seeds.indexOf(a) < seeds.indexOf(b) ? a : b);
+  const finish = (ms: Match[], pick: (a: string, b: string) => string) => {
+    let played = advance(ms, {});
+    for (let guard = 0; guard < 200; guard++) {
+      const m = played.find((x) => x.status === "scheduled" && x.a && x.b);
+      if (!m) break;
+      const w = pick(m.a!, m.b!);
+      played = advance(ms, { ...Object.fromEntries(played.filter((x) => x.status === "done" && !x.walkover).map((x) => [x.key, { a: x.scoreA!, b: x.scoreB! }])),
+        [m.key]: w === m.a ? { a: 2, b: 0 } : { a: 0, b: 2 } });
+    }
+    return played;
+  };
+  it("knockout: 1st, 2nd and joint 3rd", () => {
+    const seeds = ids(8);
+    const r = placings({ format: "knockout", entries: seeds, matches: finish(knockout(seeds), win(seeds)) });
+    expect(r).toEqual([{ place: 1, name: "e1" }, { place: 2, name: "e2" }, { place: 3, name: "e4" }, { place: 3, name: "e3" }]);
+  });
+  it("league: the top four of the table", () => {
+    const seeds = ids(5);
+    expect(placings({ format: "league", entries: seeds, matches: finish(league(seeds), win(seeds)) }).map((p) => p.name)).toEqual(["e1", "e2", "e3", "e4"]);
+  });
+  it("double elimination: grand final, then the losers-bracket final", () => {
+    const seeds = ids(4);
+    const r = placings({ format: "double_elim", entries: seeds, matches: finish(doubleElim(seeds), win(seeds)) });
+    expect(r.map((p) => [p.place, p.name])).toEqual([[1, "e1"], [2, "e2"], [3, "e3"]]);
+  });
+  it("nothing until the final is played", () => {
+    expect(placings({ format: "knockout", entries: ids(4), matches: advance(knockout(ids(4)), {}) })).toEqual([]);
+  });
+});

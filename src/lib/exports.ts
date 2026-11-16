@@ -46,14 +46,15 @@ const PAYMENT: Record<string, string> = { not_required: "Free", unpaid: "Unpaid"
 
 export type Contact = { email: string | null; phone: string | null };
 
-export function entriesCsv(ev: EventDetail, contacts: Map<string, Contact>) {
-  const rows: Cell[][] = [["Category", "Entry", "Club", "Seed", "Status", "Payment", "Checked in", "ID seen", "Players", "Email", "Phone"]];
+export function entriesCsv(ev: EventDetail, contacts: Map<string, Contact>, answers: Map<string, Record<string, string>> = new Map()) {
+  const qs = ev.regFields ?? [];
+  const rows: Cell[][] = [["Category", "Entry", "Club", "Seed", "Status", "Payment", "Checked in", "ID seen", "Players", "Email", "Phone", ...qs.map((q) => q.label)]];
   for (const c of ev.categories) {
     for (const e of c.entryRows) {
       const who = contacts.get(e.id);
       rows.push([
         c.name, e.name, e.club, e.seed, e.status[0].toUpperCase() + e.status.slice(1), PAYMENT[e.paymentStatus] ?? e.paymentStatus,
-        e.checkedIn, e.idChecked, e.roster.join("; "), who?.email, who?.phone,
+        e.checkedIn, e.idChecked, e.roster.join("; "), who?.email, who?.phone, ...qs.map((q) => answers.get(e.id)?.[q.key] ?? ""),
       ]);
     }
   }

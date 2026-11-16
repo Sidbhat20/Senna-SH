@@ -11,6 +11,7 @@ type Props = {
   a: string;
   b: string;
   scoring: Scoring;
+  unit?: "game" | "set"; // tennis and volleyball count sets
   initialGames: Game[];
   initialA: number;
   initialB: number;
@@ -24,6 +25,7 @@ const big = "h-20 rounded-lg bg-flood font-display text-3xl font-bold text-ink a
 const small = "mt-2 h-11 rounded-lg border border-chalk/30 font-semibold disabled:opacity-30";
 
 export function ScorePad(p: Props) {
+  const part = p.unit === "set" ? "Set" : "Game";
   const rules: GameRules | null = p.scoring.kind === "games" ? { bestOf: p.scoring.bestOf, pointsTo: p.scoring.pointsTo, cap: p.scoring.cap } : null;
   const [games, setGames] = useState<Game[]>(p.initialGames);
   const [goals, setGoals] = useState({ a: p.initialA, b: p.initialB });
@@ -58,7 +60,7 @@ export function ScorePad(p: Props) {
   const winnerName = rules
     ? state?.winner === "a" ? p.a : p.b
     : goals.a > goals.b || (levelKnockout && Number(pen.a) > Number(pen.b)) ? p.a : p.b;
-  const scoreLine = rules ? `${state?.a ?? 0}-${state?.b ?? 0} in games` : `${goals.a}-${goals.b}${levelKnockout ? `, ${pen.a}-${pen.b} on penalties` : ""}`;
+  const scoreLine = rules ? `${state?.a ?? 0}-${state?.b ?? 0} in ${part.toLowerCase()}s` : `${goals.a}-${goals.b}${levelKnockout ? `, ${pen.a}-${pen.b} on penalties` : ""}`;
 
   const tap = (side: "a" | "b", by: 1 | -1) => {
     setError("");
@@ -109,12 +111,12 @@ export function ScorePad(p: Props) {
         <div className="mb-3 flex flex-wrap items-center gap-2 text-[15px]" aria-label="Games">
           {finishedGames.map(([x, y], i) => (
             <span key={i} className="tabular rounded-md bg-ink px-2.5 py-1 font-semibold text-chalk">
-              Game {i + 1}: {x}-{y}
+              {part} {i + 1}: {x}-{y}
             </span>
           ))}
           {!state?.winner && status === "live" && (
             <span className="text-muted">
-              Game {finishedGames.length + 1} of up to {rules.bestOf}, to {rules.pointsTo}
+              {part} {finishedGames.length + 1} of up to {rules.bestOf}, to {rules.pointsTo}
             </span>
           )}
         </div>
@@ -126,7 +128,7 @@ export function ScorePad(p: Props) {
             <div className="line-clamp-2 min-h-12 text-[15px] font-semibold leading-snug">{side === "a" ? p.a : p.b}</div>
             <div className="flex items-baseline justify-between">
               <output aria-live="polite" className="tabular my-2 font-display text-7xl font-bold leading-none">{shown[i]}</output>
-              {rules && <span className="tabular text-[15px] text-chalk/70">{side === "a" ? state?.a : state?.b} games</span>}
+              {rules && <span className="tabular text-[15px] text-chalk/70">{side === "a" ? state?.a : state?.b} {(p.unit ?? "game")}s</span>}
             </div>
             <button type="button" disabled={status !== "live" || (!!rules && !!state?.winner)} onClick={() => tap(side, 1)} className={big}
               aria-label={`Point to ${side === "a" ? p.a : p.b}`}>
@@ -178,7 +180,7 @@ export function ScorePad(p: Props) {
             </button>
             {!canEnd && (
               <p className="mt-2 text-[15px] text-muted">
-                {rules ? `The match ends when someone wins ${Math.floor(rules.bestOf / 2) + 1} ${rules.bestOf === 1 ? "game" : "games"}.` : "Enter the penalty shoot-out score to finish a level knockout match."}
+                {rules ? `The match ends when someone wins ${Math.floor(rules.bestOf / 2) + 1} ${part.toLowerCase()}${rules.bestOf === 1 ? "" : "s"}.` : "Enter the penalty shoot-out score to finish a level knockout match."}
               </p>
             )}
           </>

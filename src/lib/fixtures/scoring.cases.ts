@@ -14,4 +14,15 @@ export const GAME_CASES: { g: Game; to: number; cap: number | null; over: boolea
   { g: [15, 13], to: 11, cap: null, over: true, open: false },
   { g: [10, 10], to: 11, cap: null, over: false, open: true },
   { g: [0, 0], to: 11, cap: null, over: false, open: true },
+  // tennis: games within a set, 6-6 tiebreak recorded as 7-6
+  { g: [6, 4], to: 6, cap: 7, over: true, open: false },
+  { g: [7, 5], to: 6, cap: 7, over: true, open: false },
+  { g: [7, 6], to: 6, cap: 7, over: true, open: false },
+  { g: [6, 6], to: 6, cap: 7, over: false, open: true },
+  { g: [6, 5], to: 6, cap: 7, over: false, open: true },
+  { g: [8, 6], to: 6, cap: 7, over: false, open: false },
+  // volleyball: sets to 25, win by 2, no cap
+  { g: [25, 23], to: 25, cap: null, over: true, open: false },
+  { g: [25, 24], to: 25, cap: null, over: false, open: true },
+  { g: [31, 29], to: 25, cap: null, over: true, open: false },
 ];

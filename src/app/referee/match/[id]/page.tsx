@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { roundName } from "@/components/Bracket";
 import { time } from "@/components/ui";
 import { getMatch } from "@/lib/data";
+import { scoreUnits } from "@/lib/sports";
 import { BYE } from "@/lib/fixtures/types";
 import { ScorePad } from "./ScorePad";
 
@@ -45,6 +46,7 @@ export default async function RefereeMatch({ params }: { params: Promise<{ id: s
             a={m.a!}
             b={m.b!}
             scoring={category.scoring}
+            unit={scoreUnits(t.sport).part}
             initialGames={m.games}
             initialA={m.scoreA ?? 0}
             initialB={m.scoreB ?? 0}

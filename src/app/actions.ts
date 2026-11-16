@@ -12,6 +12,7 @@ import { standings } from "@/lib/fixtures/standings";
 import type { Match, StageKind } from "@/lib/fixtures/types";
 import { capFor, FORMATS, LAUNCH_SPORTS, SPORT_DEFAULTS, type Format, type Sport } from "@/lib/sports";
 import { readEntriesCsv } from "@/lib/csv-import";
+import { answersFrom, fieldKey, type RegField } from "@/lib/reg-fields";
 import { notify } from "@/lib/notify";
 import { supabaseServer } from "@/lib/supabase/server";
 
@@ -119,6 +120,7 @@ export async function register(_: ActionState, form: FormData): Promise<ActionSt
   const { error } = await sb.rpc("register_entry", {
     p_category: category, p_team: null, p_team_name: teamName ?? null, p_partner: form.get("partner")?.toString().trim() || null,
     p_dob: dateOrNull("dob"), p_partner_dob: dateOrNull("partner_dob"), p_roster: roster,
+    p_answers: answersFrom(await eventFieldsFor(sb, category), (k) => form.get(k)),
   });
   if (error) {
     if (!error.message.includes("duplicate")) return { error: error.message };
@@ -427,4 +429,40 @@ export async function moveMatch(_: ActionState, form: FormData): Promise<ActionS
   const { error } = await sb.rpc("move_match", { p_match: String(form.get("match")), p_court: court, p_at: at.toISOString() });
   if (error) return { error: `${error.message}. Pick another court or time.` };
   return done(form.get("slug"), "Moved.");
+}
+
+// ---------- P1.3: registration questions ----------
+async function eventFieldsFor(sb: Sb, categoryId: string): Promise<RegField[]> {
+  const { data } = await sb.from("categories").select("event:events(reg_fields)").eq("id", categoryId).maybeSingle();
+  return ((data?.event as unknown as { reg_fields: RegField[] } | null)?.reg_fields) ?? [];
+}
+
+async function saveFields(sb: Sb, eventId: string, change: (f: RegField[]) => RegField[] | string): Promise<string | null> {
+  const { data } = await sb.from("events").select("reg_fields").eq("id", eventId).single();
+  const next = change((data?.reg_fields ?? []) as RegField[]);
+  if (typeof next === "string") return next;
+  const { error } = await sb.rpc("update_event", { p_event: eventId, p: { reg_fields: next } });
+  return error ? (error.message.includes("check constraint") ? "Check the question and its options." : error.message) : null;
+}
+
+export async function addRegField(_: ActionState, form: FormData): Promise<ActionState> {
+  const label = str(form.get("label"), 60);
+  const type = String(form.get("type"));
+  if (!label) return { error: "Write the question." };
+  if (!["text", "date", "choice"].includes(type)) return { error: "Pick the kind of answer." };
+  const options = type === "choice"
+    ? [...new Set(String(form.get("options") ?? "").split(",").map((o) => o.trim().slice(0, 40)).filter(Boolean))] : undefined;
+  if (options && (options.length < 2 || options.length > 20)) return { error: "Give between 2 and 20 options, separated by commas." };
+  const sb = await supabaseServer();
+  const err = await saveFields(sb, String(form.get("event")), (f) =>
+    f.length >= 10 ? "Ask at most 10 questions."
+    : [...f, { key: fieldKey(label, f.map((x) => x.key)), label, type: type as RegField["type"], ...(options ? { options } : {}), required: form.get("required") === "yes" }]);
+  return err ? { error: err } : done(form.get("slug"), "Question added. New registrations will ask it.");
+}
+
+export async function removeRegField(_: ActionState, form: FormData): Promise<ActionState> {
+  const key = String(form.get("key"));
+  const sb = await supabaseServer();
+  const err = await saveFields(sb, String(form.get("event")), (f) => f.filter((x) => x.key !== key));
+  return err ? { error: err } : done(form.get("slug"), "Question removed. Earlier answers stay in the export.");
 }

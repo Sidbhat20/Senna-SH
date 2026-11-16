@@ -620,5 +620,30 @@ describe("schema", () => {
     await as(ORG, () => q("select update_games($1, $2)", [m1.id, "[[1,0]]"]));
     await expect(move(ORG, m1.id, c2.id, "2030-03-01T09:00:00Z")).rejects.toThrow(/haven't started/);
   });
+
+  it("questions: required answers, valid dates and choices are enforced at registration; only managers read answers", async () => {
+    const { event, category } = await newCategory("knockout", "solo", 8);
+    const fields = [
+      { key: "tshirt", label: "T-shirt size", type: "choice", options: ["S", "M", "L"], required: true },
+      { key: "joined", label: "Joined the academy", type: "date", required: false },
+      { key: "note", label: "Anything else", type: "text", required: false },
+    ];
+    await expect(as(U[2], () => q("select update_event($1, $2)", [event, JSON.stringify({ reg_fields: fields })]))).rejects.toThrow(/organisers/);
+    await expect(as(ORG, () => q("select update_event($1, $2)", [event, JSON.stringify({ reg_fields: [{ key: "Bad Key", label: "x", type: "text", required: false }] })])))
+      .rejects.toThrow(/check constraint/);
+    await as(ORG, () => q("select update_event($1, $2)", [event, JSON.stringify({ reg_fields: fields })]));
+
+    const reg = (u: string, answers: object) =>
+      as(u, () => one<{ id: string }>("select register_entry($1, null, null, null, null, '{}', null, $2) as id", [category, JSON.stringify(answers)]));
+    await expect(reg(U[1], {})).rejects.toThrow(/Please answer "T-shirt size"/);
+    await expect(reg(U[1], { tshirt: "XXL" })).rejects.toThrow(/Pick one of the options/);
+    await expect(reg(U[1], { tshirt: "M", joined: "2024-02-30" })).rejects.toThrow(/real date/);
+    const { id } = await reg(U[1], { tshirt: "M", joined: "2024-02-03", sneaky: "dropped" });
+
+    await expect(as(null, () => q("select answers from entries where id = $1", [id]))).rejects.toThrow(/permission denied/);
+    await expect(as(U[1], () => q("select * from entry_answers($1)", [event]))).rejects.toThrow(/organisers/);
+    expect(await as(ORG, () => q("select answers from entry_answers($1) where entry_id = $2", [event, id])))
+      .toEqual([{ answers: { tshirt: "M", joined: "2024-02-03" } }]);
+  });
 });
 

@@ -6,7 +6,7 @@ import { createEvent } from "@/app/actions";
 import { posterProblem, uploadPoster } from "@/lib/poster";
 import { matchCount } from "@/lib/fixtures/count";
 import {
-  ageBound, ageFromName, entryShape, FORMATS, LAUNCH_SPORTS, SPORT_DEFAULTS, SPORTS, type EntryType, type Format, type Sport,
+  ageBound, ageFromName, entryShape, FORMATS, LAUNCH_SPORTS, scoreUnits, SPORT_DEFAULTS, SPORTS, type EntryType, type Format, type Sport,
 } from "@/lib/sports";
 
 const STEPS = ["Event", "Categories", "Courts", "Review"] as const;
@@ -72,7 +72,7 @@ function describe(c: Cat, sport: Sport) {
   const parts = [
     FORMATS[c.format].label, `up to ${c.maxEntries || "?"} ${enters(c)}`,
     c.entryFee ? `₹${Number(c.entryFee).toLocaleString("en-IN")}` : "free",
-    SPORT_DEFAULTS[sport].scoring.kind === "games" ? `best of ${c.bestOf} to ${c.pointsTo}` : "",
+    SPORT_DEFAULTS[sport].scoring.kind === "games" ? `best of ${c.bestOf} ${scoreUnits(sport).part}s to ${c.pointsTo}` : "",
     ageText(c),
   ];
   return parts.filter(Boolean).join(", ");
@@ -184,6 +184,8 @@ function CategoryCard({ c, sport, open, error, onOpen, onChange, onRemove }: {
 }) {
   const set = <K extends keyof Cat>(k: K, v: Cat[K]) => onChange({ ...c, [k]: v });
   const racquet = SPORT_DEFAULTS[sport].racquet;
+  const scored = SPORT_DEFAULTS[sport].scoring.kind === "games"; // racquet sports, plus volleyball sets
+  const u = scoreUnits(sport);
   if (!open) {
     return (
       <li className={`flex items-center gap-3 rounded-xl border bg-white px-4 py-3 ${error ? "border-danger" : "border-line"}`}>
@@ -258,16 +260,19 @@ function CategoryCard({ c, sport, open, error, onOpen, onChange, onRemove }: {
           </Label>
         )}
       </div>
-      {racquet && (
+      {scored && (
         <div className="grid gap-5 sm:grid-cols-2">
-          <Label text="Games per match">
+          <Label text={`${u.part === "set" ? "Sets" : "Games"} per match`}>
             <Choice<1 | 3 | 5> name={`Games per match in ${c.name}`} value={c.bestOf} size="sm" cols="grid-cols-3"
               onChange={(v) => set("bestOf", v)}
-              options={[{ value: 1, label: "1 game" }, { value: 3, label: "Best of 3" }, { value: 5, label: "Best of 5" }]} />
+              options={[{ value: 1, label: `1 ${u.part}` }, { value: 3, label: "Best of 3" }, { value: 5, label: "Best of 5" }]} />
           </Label>
-          <Label text="Points per game" hint={sport === "badminton" ? "Win by 2, capped at 9 over (21 caps at 30)." : "Win by 2."}>
+          <Label text={`${u.point === "game" ? "Games" : "Points"} per ${u.part}`}
+            hint={sport === "badminton" ? "Win by 2, capped at 9 over (21 caps at 30)."
+              : sport === "tennis" ? "Win by 2 games; 6-6 goes to a tiebreak, entered as 7-6."
+              : sport === "volleyball" ? "Win by 2. Every set is played to this score." : "Win by 2."}>
             <div className="flex flex-wrap items-center gap-1.5">
-              {["11", "15", "21"].map((n) => (
+              {(sport === "tennis" ? ["4", "6"] : sport === "volleyball" ? ["15", "21", "25"] : ["11", "15", "21"]).map((n) => (
                 <button key={n} type="button" onClick={() => set("pointsTo", n)} className={pill(c.pointsTo === n)}>{n}</button>
               ))}
               <div className="w-24"><Digits label={`Points per game in ${c.name}`} value={c.pointsTo} onChange={(v) => set("pointsTo", v)} /></div>
