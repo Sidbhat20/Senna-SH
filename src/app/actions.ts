@@ -151,20 +151,27 @@ export async function register(_: ActionState, form: FormData): Promise<ActionSt
   }
   const code = str(form.get("code"), 20);
   if (code) {
-    const { data: due, error: bad } = await sb.rpc("apply_coupon", { p_entry: entryId, p_code: code });
-    if (bad) return done(form.get("slug"), `You're in, but the code didn't work: ${bad.message}. You can try it again below.`);
+    const { data, error: bad } = await sb.rpc("apply_coupon", { p_entry: entryId, p_code: code });
+    const r = couponResult(data);
+    if (bad || r.error) return done(form.get("slug"), `You're in, but the code didn't work: ${bad?.message ?? r.error}. You can try it again below.`);
+    const due = r.due;
     return done(form.get("slug"), due === 0 ? "You're in, free with your code." : `You're in. With your code you pay ₹${Number(due).toLocaleString("en-IN")}.`);
   }
   return done(form.get("slug"), "You're in.");
 }
 
 // ---------- Organiser UX P1.2: coupons ----------
+/** apply_coupon returns {due} or {error} (0025); before 0025 it returned the amount due as a bare number. */
+const couponResult = (data: unknown): { due?: number; error?: string } =>
+  typeof data === "number" ? { due: data } : ((data ?? {}) as { due?: number; error?: string });
 export async function applyCoupon(_: ActionState, form: FormData): Promise<ActionState> {
   const code = str(form.get("code"), 20);
   if (!code) return { error: "Type the code." };
   const sb = await supabaseServer();
-  const { data: due, error } = await sb.rpc("apply_coupon", { p_entry: String(form.get("entry")), p_code: code });
-  if (error) return { error: error.message };
+  const { data, error } = await sb.rpc("apply_coupon", { p_entry: String(form.get("entry")), p_code: code });
+  const r = couponResult(data);
+  if (error || r.error) return { error: error?.message ?? r.error };
+  const due = r.due;
   return done(form.get("slug"), due === 0 ? "Code applied. Your entry is free and confirmed." : `Code applied. You now pay ₹${Number(due).toLocaleString("en-IN")}.`);
 }
 

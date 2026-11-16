@@ -835,19 +835,25 @@ describe("schema", () => {
     const b = await register(U[2], category);
     const c = await register(U[3], category);
     await expect(as(U[2], () => q("select apply_coupon($1, 'EARLY20')", [a]))).rejects.toThrow(/your own entry/);
-    await expect(as(U[1], () => q("select apply_coupon($1, 'NOPE')", [a]))).rejects.toThrow(/isn't valid/);
-    await expect(as(U[1], () => q("select apply_coupon($1, 'KIDSONLY')", [a]))).rejects.toThrow(/different category/);
-    await expect(as(U[1], () => q("select apply_coupon($1, 'old')", [a]))).rejects.toThrow(/expired/);
-    expect(await as(U[1], () => one("select apply_coupon($1, ' early20 ') as due", [a]))).toEqual({ due: 400 });
+    const apply = (who: string, entry: string, code: string) => as(who, () => one<{ r: { due?: number; error?: string } }>("select apply_coupon($1, $2) as r", [entry, code])).then((x) => x.r);
+    expect((await apply(U[1], a, "NOPE")).error).toMatch(/isn't valid/);
+    expect((await apply(U[1], a, "KIDSONLY")).error).toMatch(/different category/);
+    expect((await apply(U[1], a, "old")).error).toMatch(/expired/);
+    expect(await apply(U[1], a, " early20 ")).toEqual({ due: 400 });
     expect(await one("select fee_due, status from entries where id = $1", [a])).toEqual({ fee_due: 400, status: "pending" });
     await expect(as(U[1], () => q("select apply_coupon($1, 'FREE')", [a]))).rejects.toThrow(/already has a code/);
-    await expect(as(U[2], () => q("select apply_coupon($1, 'EARLY20')", [b]))).rejects.toThrow(/used up/);
+    expect((await apply(U[2], b, "EARLY20")).error).toMatch(/used up/);
     expect(await one("select uses from coupons where code = 'EARLY20'")).toEqual({ uses: 1 });
 
-    expect(await as(U[3], () => one("select apply_coupon($1, 'FREE') as due", [c]))).toEqual({ due: 0 });
+    expect(await apply(U[3], c, "FREE")).toEqual({ due: 0 });
     expect(await one("select status, payment_status from entries where id = $1", [c])).toEqual({ status: "confirmed", payment_status: "not_required" });
     expect(await as(ORG, () => q("select discount from coupon_redemptions order by discount"))).toEqual([{ discount: 100 }, { discount: 500 }]);
     await expect(as(ORG, () => q("select update_category($1, 'Open', 600, 8)", [category]))).rejects.toThrow(/discount code/);
+
+    // guessing is capped: the 10th wrong code in an hour locks this player out, even for a real code
+    for (let i = 0; i < 9; i++) await apply(U[2], b, `GUESS${i}`); // U2 already had one wrong try (used up)
+    expect((await apply(U[2], b, "FREE")).error).toMatch(/Too many wrong codes/);
+    await expect(as(U[2], () => q("select * from coupon_attempts"))).rejects.toThrow(/permission denied/); // nobody reads the log directly
   });
 
   it("Reject payment: only managers reject a claimed payment; the player sees why and can claim again", async () => {

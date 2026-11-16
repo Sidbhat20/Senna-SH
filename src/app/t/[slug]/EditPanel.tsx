@@ -279,7 +279,7 @@ export function CouponsSection({ ev, coupons }: { ev: EventDetail; coupons: Coup
               <input name="code" required maxLength={20} placeholder="EARLY20" autoComplete="off" className={`${box} uppercase`} /></label>
             <fieldset><legend className="font-medium">Discount</legend>
               <span className="mt-1 flex gap-2">
-                <input name="amount" required inputMode="numeric" placeholder="20" aria-label="Amount" className={`${box} mt-0 w-24`} />
+                <input name="amount" required inputMode="numeric" placeholder="20" aria-label="Amount" className="block w-24 rounded-lg border border-line bg-white px-3 py-2.5 focus:border-ink focus:outline-none" />
                 <select name="kind" aria-label="Kind of discount" className={`${box} mt-0`} defaultValue="percent">
                   <option value="percent">% off</option><option value="flat">₹ off</option>
                 </select>

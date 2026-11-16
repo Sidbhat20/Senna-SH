@@ -47,7 +47,11 @@ export default async function Overview({ params }: { params: Promise<{ slug: str
           {checks.map((c) => (
             <li key={c.key} className="flex items-center gap-3 py-2.5">
               <span aria-hidden className={`grid size-6 shrink-0 place-items-center rounded-full text-[13px] font-bold ${c.done ? "bg-turf text-white" : "border-2 border-line"}`}>
-                {c.done ? "✓" : ""}
+                {c.done && (
+                  <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3.5 8.5l3 3 6-7" />
+                  </svg>
+                )}
               </span>
               <span className={`min-w-0 flex-1 ${c.done ? "text-muted" : "font-medium"}`}>
                 {c.label}<span className="sr-only">{c.done ? ", done" : ", not done"}</span>

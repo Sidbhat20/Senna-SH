@@ -7,7 +7,7 @@ import { date, sportName, StatusPill } from "@/components/ui";
 import { myEvents, SPORTS, type MyEvent } from "@/lib/data";
 import { shareLinks } from "@/lib/notify";
 import { filterEvents } from "@/lib/organise";
-import { CopyLink } from "@/app/t/[slug]/Panels";
+import { CopyText } from "@/components/CopyText";
 
 export const metadata: Metadata = { title: "Your tournaments", robots: { index: false } };
 
@@ -16,7 +16,9 @@ function EventCard({ e }: { e: MyEvent }) {
   const unpaid = e.categories.reduce((s, c) => s + c.pendingCount, 0);
   const share = e.status !== "draft" && e.status !== "cancelled" ? shareLinks(e) : null;
   const cats = e.categories.length;
-  const link = "rounded-lg border border-line bg-white px-3 py-1.5 text-[15px] font-semibold hover:border-ink";
+  const link = "rounded-lg border px-3 py-1.5 text-[15px] font-semibold";
+  const quiet = `${link} border-line bg-white hover:border-ink`;
+  const share_ = "rounded px-1 py-0.5 font-semibold underline-offset-4 hover:underline";
   return (
     <li className="flex gap-4 py-5">
       {e.posterUrl ? (
@@ -40,17 +42,18 @@ function EventCard({ e }: { e: MyEvent }) {
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Link href={`/t/${e.slug}/manage`} className={`${link} border-ink bg-ink text-chalk hover:bg-pitch`}>Manage</Link>
-          <Link href={`/t/${e.slug}`} className={link}>Event page</Link>
-          {e.status !== "draft" && <Link href={`/t/${e.slug}/desk`} className={link}>Desk</Link>}
-          <Link href={`/t/${e.slug}?view=schedule`} className={link}>Order of play</Link>
+          <Link href={`/t/${e.slug}`} className={quiet}>Event page</Link>
+          {e.status !== "draft" && <Link href={`/t/${e.slug}/desk`} className={quiet}>Desk</Link>}
+          <Link href={`/t/${e.slug}?view=schedule`} className={quiet}>Order of play</Link>
         </div>
         {share && (
-          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-[14px]">
-            <span className="text-muted">Share</span>
-            <a href={share.whatsapp} target="_blank" rel="noopener noreferrer" className="font-semibold underline-offset-4 hover:underline">WhatsApp</a>
-            <a href={share.x} target="_blank" rel="noopener noreferrer" className="font-semibold underline-offset-4 hover:underline">X</a>
-            <a href={share.facebook} target="_blank" rel="noopener noreferrer" className="font-semibold underline-offset-4 hover:underline">Facebook</a>
-            <div className="w-full sm:w-72"><CopyLink path={`/t/${e.slug}`} label="Link, or Instagram" /></div>
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px]">
+            <span className="mr-1 text-muted">Share</span>
+            <a href={share.whatsapp} target="_blank" rel="noopener noreferrer" className={share_}>WhatsApp</a>
+            <a href={share.x} target="_blank" rel="noopener noreferrer" className={share_}>X</a>
+            <a href={share.facebook} target="_blank" rel="noopener noreferrer" className={share_}>Facebook</a>
+            <CopyText text={share.url} label="Copy link" className={share_} />
+            <span className="text-muted">(paste it into Instagram)</span>
           </div>
         )}
       </div>
