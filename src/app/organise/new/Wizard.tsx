@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { createEvent } from "@/app/actions";
 import { posterProblem, uploadPoster } from "@/lib/poster";
+import type { PosterDraft } from "@/lib/poster-draft";
 import { matchCount } from "@/lib/fixtures/count";
 import {
   ageBound, ageFromName, entryShape, FORMATS, LAUNCH_SPORTS, scoreUnits, SPORT_DEFAULTS, SPORTS, type EntryType, type Format, type Sport,
@@ -295,15 +296,37 @@ function CategoryCard({ c, sport, open, error, onOpen, onChange, onRemove }: {
   );
 }
 
-export function Wizard() {
+/** A poster draft as wizard state: what the poster showed, the sport's defaults for everything else. */
+function fromPoster(p: PosterDraft): Draft {
+  const sport = p.sport || "badminton";
+  const sc = SPORT_DEFAULTS[sport].scoring;
+  return {
+    ...EMPTY, title: p.title, sport: p.sport, venue: p.venue, area: p.area, startDate: p.startDate, startTime: p.startTime || EMPTY.startTime,
+    prize: p.prize, rules: p.rules.join("\n"),
+    categories: p.categories.map((c): Cat => {
+      const shape = entryShape(sport, c.name);
+      const age = ageFromName(c.name);
+      return {
+        key: nextKey++, name: c.name, format: c.format ?? "knockout", groupCount: 4, entryType: c.entryType ?? shape.entryType,
+        teamSize: String(shape.teamSize), maxEntries: String(c.maxEntries ?? (SPORT_DEFAULTS[sport].racquet ? 32 : 16)),
+        entryFee: c.entryFee === null ? "" : String(c.entryFee),
+        bestOf: sc.kind === "games" ? sc.bestOf : 1, pointsTo: String(sc.kind === "games" ? sc.pointsTo : 21),
+        ageKind: age.kind, age: age.age ? String(age.age) : "",
+      };
+    }),
+  };
+}
+
+export function Wizard({ initial, initialPoster }: { initial?: PosterDraft; initialPoster?: File } = {}) {
   const [step, setStep] = useState(0);
-  const [d, setD] = useState<Draft>(EMPTY);
+  const [d, setD] = useState<Draft>(() => (initial ? fromPoster(initial) : EMPTY));
   const [openCat, setOpenCat] = useState<number | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [publishError, setPublishError] = useState("");
   const [pending, startTransition] = useTransition();
   const router = useRouter();
-  const [poster, setPoster] = useState<{ file: File; preview: string } | null>(null);
+  const [poster, setPoster] = useState<{ file: File; preview: string } | null>(() =>
+    initialPoster ? { file: initialPoster, preview: URL.createObjectURL(initialPoster) } : null);
   const [posterError, setPosterError] = useState("");
   const choosePoster = (f?: File) => {
     if (!f) return;

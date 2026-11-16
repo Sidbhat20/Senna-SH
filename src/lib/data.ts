@@ -55,6 +55,7 @@ export type EventSummary = {
 export type EntryRow = {
   id: string; name: string; club: string; seed: number | null; status: "pending" | "confirmed" | "withdrawn";
   checkedIn: boolean; idChecked: boolean; roster: string[]; paymentStatus: string; source: "online" | "offline";
+  feeDue: number | null; // after a discount code; null means the category fee
 };
 export type DbMatch = Played & {
   id: string;
@@ -161,7 +162,7 @@ async function loadEvent(slug: string): Promise<EventDetail | null> {
   const catIds = ev.categories.map((c) => c.id);
   const [entries, matches, courts, manage] = await Promise.all([
     catIds.length
-      ? sb.from("entry_names").select("id, category_id, name, club, seed, status, checked_in_at, id_checked, roster, payment_status, source").in("category_id", catIds)
+      ? sb.from("entry_names").select("id, category_id, name, club, seed, status, checked_in_at, id_checked, roster, payment_status, source, fee_due").in("category_id", catIds)
           .order("seed", { nullsFirst: false }).order("created_at")
       : Promise.resolve({ data: [], error: null }),
     sb.from("matches").select("*").eq("event_id", ev.id).order("scheduled_at", { nullsFirst: false }).order("round").order("slot"),
@@ -171,10 +172,10 @@ async function loadEvent(slug: string): Promise<EventDetail | null> {
   if (entries.error || matches.error || courts.error) throw new Error("Could not load this tournament");
 
   type ERow = { id: string; category_id: string; name: string; club: string; seed: number | null; status: EntryRow["status"];
-    checked_in_at: string | null; id_checked: boolean; roster: string[]; payment_status: string; source: EntryRow["source"] };
+    checked_in_at: string | null; id_checked: boolean; roster: string[]; payment_status: string; source: EntryRow["source"]; fee_due: number | null };
   const entryRows = (entries.data as ERow[]).map((e) => ({
     id: e.id, category_id: e.category_id, name: e.name, club: e.club, seed: e.seed, status: e.status,
-    checkedIn: !!e.checked_in_at, idChecked: e.id_checked, roster: e.roster ?? [], paymentStatus: e.payment_status, source: e.source,
+    checkedIn: !!e.checked_in_at, idChecked: e.id_checked, roster: e.roster ?? [], paymentStatus: e.payment_status, source: e.source, feeDue: e.fee_due,
   }));
   const name = new Map(entryRows.map((e) => [e.id, e.name]));
   const courtName = new Map((courts.data as Court[]).map((c) => [c.id, c.name]));
@@ -229,20 +230,20 @@ export async function getMatch(id: string) {
 export async function myEntries(ev: { categories: { id: string }[] }) {
   const sb = await supabaseServer();
   const { data: auth } = await sb.auth.getUser();
-  const byCategory = new Map<string, { id: string; status: string; paymentStatus: string; paymentNote: string | null; invite: string | null; canWithdraw: boolean }>();
+  const byCategory = new Map<string, { id: string; status: string; paymentStatus: string; feeDue: number | null; paymentNote: string | null; invite: string | null; canWithdraw: boolean }>();
   if (!auth.user) return { loggedIn: false as const, byCategory };
   const catIds = ev.categories.map((c) => c.id);
   const { data: teams } = await sb.from("team_members").select("team_id").eq("user_id", auth.user.id);
   const teamIds = (teams ?? []).map((t) => t.team_id);
   const { data: rows } = catIds.length
-    ? await sb.from("entries").select("id, category_id, status, payment_status, team_id, user_id").in("category_id", catIds).neq("status", "withdrawn")
+    ? await sb.from("entries").select("id, category_id, status, payment_status, team_id, user_id, fee_due").in("category_id", catIds).neq("status", "withdrawn")
         .or(`user_id.eq.${auth.user.id}${teamIds.length ? `,team_id.in.(${teamIds.join(",")})` : ""}`)
     : { data: [] };
   for (const r of rows ?? []) {
     const invite = r.team_id ? ((await sb.rpc("my_team_invite", { p_team: r.team_id })).data as string | null) : null;
     // players withdraw their own entry; for teams only the captain can (my_team_invite answers only for captains)
     const paymentNote = r.payment_status === "unpaid" ? ((await sb.rpc("my_payment_note", { p_entry: r.id })).data as string | null) : null;
-    byCategory.set(r.category_id, { id: r.id, status: r.status, paymentStatus: r.payment_status, paymentNote, invite, canWithdraw: r.user_id === auth.user.id || invite !== null });
+    byCategory.set(r.category_id, { id: r.id, status: r.status, paymentStatus: r.payment_status, feeDue: r.fee_due, paymentNote, invite, canWithdraw: r.user_id === auth.user.id || invite !== null });
   }
   return { loggedIn: true as const, byCategory };
 }
@@ -384,4 +385,13 @@ export async function messageAudience(eventId: string, kind: "fixtures_released"
   const { data, error } = await sb.rpc("message_audience", { p_event: eventId, p_kind: kind });
   if (error) return null;
   return (data ?? []) as AudienceRow[];
+}
+
+export type Coupon = { id: string; code: string; kind: "percent" | "flat"; amount: number; categoryId: string | null; expiresAt: string | null; maxUses: number | null; uses: number };
+
+/** An event's discount codes with their use counts. Managers only (RLS returns nothing to anyone else). */
+export async function eventCoupons(eventId: string): Promise<Coupon[]> {
+  const sb = await supabaseServer();
+  const { data } = await sb.from("coupons").select("id, code, kind, amount, category_id, expires_at, max_uses, uses").eq("event_id", eventId).order("created_at");
+  return (data ?? []).map((c) => ({ id: c.id, code: c.code, kind: c.kind, amount: c.amount, categoryId: c.category_id, expiresAt: c.expires_at, maxUses: c.max_uses, uses: c.uses }));
 }

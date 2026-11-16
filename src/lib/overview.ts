@@ -2,6 +2,7 @@
 // Pure functions, so they're unit-tested without a database.
 import type { EventDetail } from "./data";
 import { BYE } from "./fixtures/types";
+import { amountDue } from "./payments";
 
 export type Kpis = {
   confirmed: number; pending: number; withdrawn: number;
@@ -24,7 +25,7 @@ export function kpis(ev: EventDetail, now = Date.now()): Kpis {
       if (e.status === "pending" && (e.paymentStatus === "unpaid" || e.paymentStatus === "claimed")) {
         const bucket = e.paymentStatus === "unpaid" ? k.unpaid : k.claimed;
         bucket.count++;
-        bucket.rupees += c.entryFee;
+        bucket.rupees += amountDue(c, e);
       }
     }
     if (c.status === "open") k.spotsLeft += Math.max(c.maxEntries - taken, 0);

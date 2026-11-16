@@ -799,6 +799,57 @@ describe("schema", () => {
     expect(await send(OWN, "general_info", "Draft events say nothing")).toEqual([]);
   });
 
+  it("Swap: organisers swap players between scheduled first-round matches only", async () => {
+    const { category } = await newCategory("knockout", "solo", 4);
+    const es = [await register(U[1], category), await register(U[2], category), await register(U[3], category), await register(U[4], category)];
+    await as(ORG, () => q("select save_fixtures($1, $2)", [category, JSON.stringify(knockout(es))]));
+    const [m1, m2] = await q<{ id: string; entry_a: string; entry_b: string }>("select id, entry_a, entry_b from matches where category_id = $1 and round = 1 order by slot", [category]);
+    const final = await one<{ id: string }>("select id from matches where category_id = $1 and round = 2", [category]);
+
+    await expect(as(U[5], () => q("select swap_entries($1, 'b', $2, 'a')", [m1.id, m2.id]))).rejects.toThrow(/organisers/);
+    await expect(as(ORG, () => q("select swap_entries($1, 'a', $1, 'b')", [m1.id]))).rejects.toThrow(/different/);
+    await as(ORG, () => q("select swap_entries($1, 'b', $2, 'a')", [m1.id, m2.id]));
+    expect(await q("select entry_a, entry_b from matches where id in ($1, $2) order by slot", [m1.id, m2.id]))
+      .toEqual([{ entry_a: m1.entry_a, entry_b: m2.entry_a }, { entry_a: m1.entry_b, entry_b: m2.entry_b }]);
+
+    await expect(as(ORG, () => q("select swap_entries($1, 'a', $2, 'a')", [m1.id, final.id]))).rejects.toThrow(/first-round/);
+    await q("update matches set status = 'done' where id = $1", [m2.id]);
+    await expect(as(ORG, () => q("select swap_entries($1, 'a', $2, 'a')", [m1.id, m2.id]))).rejects.toThrow(/started or finished/);
+  });
+
+  it("Coupons: managers create them; players apply one atomically; expiry, use limits and categories hold", async () => {
+    const { event, category } = await newCategory("knockout", "solo", 8, 500);
+    const other = await one<{ id: string }>("insert into categories (event_id, name, format, entry_type, max_entries, entry_fee) values ($1, 'Kids', 'knockout', 'solo', 8, 300) returning id", [event]);
+    const add = (who: string, row: Record<string, unknown>) => as(who, () => q(
+      "insert into coupons (event_id, code, kind, amount, category_id, expires_at, max_uses) values ($1, $2, $3, $4, $5, $6, $7)",
+      [event, row.code, row.kind ?? "percent", row.amount, row.category ?? null, row.expires ?? null, row.max ?? null]));
+    await expect(add(U[5], { code: "STEAL", amount: 100 })).rejects.toThrow(/row-level security/);
+    await add(ORG, { code: "EARLY20", amount: 20, max: 1 });
+    await add(ORG, { code: "KIDSONLY", kind: "flat", amount: 100, category: other.id });
+    await add(ORG, { code: "OLD", amount: 10, expires: "2020-01-01T00:00:00Z" });
+    await add(ORG, { code: "FREE", amount: 100 });
+    expect(await as(U[5], () => q("select code from coupons"))).toEqual([]); // codes never leak to players
+    expect(await as(null, () => q("select code from coupons").catch(() => []))).toEqual([]);
+
+    const a = await register(U[1], category);
+    const b = await register(U[2], category);
+    const c = await register(U[3], category);
+    await expect(as(U[2], () => q("select apply_coupon($1, 'EARLY20')", [a]))).rejects.toThrow(/your own entry/);
+    await expect(as(U[1], () => q("select apply_coupon($1, 'NOPE')", [a]))).rejects.toThrow(/isn't valid/);
+    await expect(as(U[1], () => q("select apply_coupon($1, 'KIDSONLY')", [a]))).rejects.toThrow(/different category/);
+    await expect(as(U[1], () => q("select apply_coupon($1, 'old')", [a]))).rejects.toThrow(/expired/);
+    expect(await as(U[1], () => one("select apply_coupon($1, ' early20 ') as due", [a]))).toEqual({ due: 400 });
+    expect(await one("select fee_due, status from entries where id = $1", [a])).toEqual({ fee_due: 400, status: "pending" });
+    await expect(as(U[1], () => q("select apply_coupon($1, 'FREE')", [a]))).rejects.toThrow(/already has a code/);
+    await expect(as(U[2], () => q("select apply_coupon($1, 'EARLY20')", [b]))).rejects.toThrow(/used up/);
+    expect(await one("select uses from coupons where code = 'EARLY20'")).toEqual({ uses: 1 });
+
+    expect(await as(U[3], () => one("select apply_coupon($1, 'FREE') as due", [c]))).toEqual({ due: 0 });
+    expect(await one("select status, payment_status from entries where id = $1", [c])).toEqual({ status: "confirmed", payment_status: "not_required" });
+    expect(await as(ORG, () => q("select discount from coupon_redemptions order by discount"))).toEqual([{ discount: 100 }, { discount: 500 }]);
+    await expect(as(ORG, () => q("select update_category($1, 'Open', 600, 8)", [category]))).rejects.toThrow(/discount code/);
+  });
+
   it("Reject payment: only managers reject a claimed payment; the player sees why and can claim again", async () => {
     const { event, category } = await newCategory("knockout", "solo", 4, 500);
     const { t } = await as(ORG, () => one<{ t: string }>("select create_staff_invite($1, 'Co') as t", [event]));

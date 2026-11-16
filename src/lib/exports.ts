@@ -1,6 +1,7 @@
 // CSV exports for organisers (P0.6). Pure functions over the event the page already loads, so they're easy to test.
 import type { CategoryDetail, DbMatch, EventDetail } from "./data";
 import { roundName } from "./fixtures/rounds";
+import { amountDue } from "./payments";
 import { gamesText } from "./fixtures/scoring";
 import { BYE } from "./fixtures/types";
 
@@ -58,7 +59,7 @@ export function entriesCsv(ev: EventDetail, contacts: Map<string, Contact>, answ
       const pay = payments.get(e.id);
       rows.push([
         c.name, e.name, e.club, e.source === "offline" ? "Walk-in / import" : "Online", e.seed, e.status[0].toUpperCase() + e.status.slice(1), PAYMENT[e.paymentStatus] ?? e.paymentStatus,
-        c.entryFee || "", c.entryFee ? (ev.upiId ?? "") : "", pay?.ref ?? "", istStamp(pay?.claimedAt ?? undefined),
+        amountDue(c, e) || "", c.entryFee ? (ev.upiId ?? "") : "", pay?.ref ?? "", istStamp(pay?.claimedAt ?? undefined),
         e.checkedIn, e.idChecked, e.roster.join("; "), who?.email, who?.phone, ...qs.map((q) => answers.get(e.id)?.[q.key] ?? ""),
       ]);
     }

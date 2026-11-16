@@ -2,7 +2,9 @@ import Link from "next/link";
 import { FORMATS, getEvent, type DbMatch } from "@/lib/data";
 import { BYE } from "@/lib/fixtures/types";
 import { matchCounts } from "@/lib/overview";
+import { Fullscreen } from "@/components/Fullscreen";
 import { DrawButton } from "../../Panels";
+import { SwapBoard, type SwapRow } from "./SwapBoard";
 import { CategoryView, scorable } from "../../views";
 
 type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ c?: string }> };
@@ -20,6 +22,10 @@ export default async function FixturesPage({ params, searchParams }: Props) {
   const groupStageDone = c.format === "groups_knockout" && group.length > 0 && group.every((m) => m.status === "done" || m.a === BYE || m.b === BYE)
     && !c.matches.some((m) => m.stage === "knockout");
   const canDraw = c.matches.length === 0 && (c.status === "open" || c.status === "locked");
+  const firstRound = c.matches.filter((m) => (m.stage === "knockout" || m.stage === "winners") && m.round === 1 && m.a && m.b && m.a !== BYE && m.b !== BYE);
+  const swapRows: SwapRow[] = firstRound.map((m) => ({
+    id: m.id, label: `Match ${m.slot + 1}`, a: m.a!, b: m.b!, locked: m.status === "live" ? "in play" : m.status === "done" ? "finished" : null,
+  }));
   const btn = "inline-flex h-10 items-center rounded-lg border border-ink px-3 text-[15px] font-semibold";
 
   return (
@@ -69,7 +75,14 @@ export default async function FixturesPage({ params, searchParams }: Props) {
         <Link href={`/t/${ev.slug}/manage/schedule`} className={btn}>Schedule</Link>
       </div>
 
-      <CategoryView ev={ev} c={c} href={href} />
+      {swapRows.some((r) => !r.locked) && (
+        <details className="rounded-xl border border-line bg-white p-5">
+          <summary className="cursor-pointer font-display text-xl font-bold">Swap players in the first round</summary>
+          <div className="mt-3"><SwapBoard rows={swapRows} slug={ev.slug} /></div>
+        </details>
+      )}
+
+      <Fullscreen label="Show full screen"><CategoryView ev={ev} c={c} href={href} /></Fullscreen>
     </div>
   );
 }

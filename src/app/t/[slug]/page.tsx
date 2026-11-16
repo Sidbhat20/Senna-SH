@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { claimPayment, withdrawEntry } from "@/app/actions";
+import { applyCoupon, claimPayment, withdrawEntry } from "@/app/actions";
 import { ActionForm } from "@/components/ActionForm";
 import { LiveRefresh } from "@/components/LiveRefresh";
 import { PosterUpload } from "@/components/PosterUpload";
@@ -10,6 +10,7 @@ import { ageLimitText, dateTime, feeRange, MatchRow, perEntry, scoringText, spor
 import { FORMATS, getEvent, myEntries, paymentClaims, type DbMatch } from "@/lib/data";
 import { whatsappShare } from "@/lib/notify";
 import { qrPath } from "@/lib/qr";
+import { amountDue } from "@/lib/payments";
 import { payRef, upiLink } from "@/lib/upi";
 import type { Claim } from "@/lib/exports";
 import { CopyLink, RegisterForm } from "./Panels";
@@ -38,7 +39,7 @@ export default async function EventPage({ params, searchParams }: Props) {
   const live = ev.categories.flatMap((x) => x.matches).filter((m) => m.status === "live");
   const mine = c && me.byCategory.get(c.id);
   // one UPI link for the Pay button and the QR
-  const payLink = mine && c && ev.upiId ? upiLink({ upiId: ev.upiId, payee: ev.organiser, rupees: c.entryFee, ref: payRef(mine.id), note: `${payRef(mine.id)} ${c.name} entry` }) : null;
+  const payLink = mine && c && ev.upiId ? upiLink({ upiId: ev.upiId, payee: ev.organiser, rupees: amountDue(c, mine), ref: payRef(mine.id), note: `${payRef(mine.id)} ${c.name} entry` }) : null;
   const left = c ? c.maxEntries - c.entries.length : 0;
   const regOpen = ev.status === "open" && c?.status === "open" && +new Date(ev.regClosesAt) > Date.now();
 
@@ -154,6 +155,16 @@ export default async function EventPage({ params, searchParams }: Props) {
                           {mine.paymentStatus === "unpaid" && (
                             <p className="text-muted">Pay before entries close on {dateTime(ev.regClosesAt)}. Unpaid places are released then, and you can&apos;t sign up again yourself.</p>
                           )}
+                          {mine.paymentStatus === "unpaid" && mine.feeDue === null && (
+                            <details className="text-[15px]">
+                              <summary className="cursor-pointer font-semibold">Have a discount code?</summary>
+                              <ActionForm action={applyCoupon} values={{ entry: mine.id, slug: ev.slug }} showOk className="mt-2">
+                                <input name="code" maxLength={20} autoComplete="off" aria-label="Discount code"
+                                  className="min-w-0 flex-1 rounded-lg border border-line px-3 py-2 uppercase focus:border-ink focus:outline-none" />
+                                <button className="h-10 rounded-lg border border-ink px-3 font-semibold disabled:opacity-60">Apply</button>
+                              </ActionForm>
+                            </details>
+                          )}
                           {mine.paymentNote && (
                             <p role="status" className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2">
                               The organiser couldn&apos;t match your payment: {mine.paymentNote.replace(/[.!]+$/, "")}. Check the UTR and send it again.
@@ -165,21 +176,21 @@ export default async function EventPage({ params, searchParams }: Props) {
                             <>
                               <a href={payLink!}
                                 className="block rounded-lg bg-turf px-5 py-3 text-center font-semibold text-white hover:bg-turf-dark">
-                                Pay ₹{c.entryFee.toLocaleString("en-IN")} with UPI
+                                Pay ₹{amountDue(c, mine).toLocaleString("en-IN")} with UPI
                               </a>
                               <div className="flex items-center gap-4">
                                 {(() => {
                                   const qr = qrPath(payLink!);
                                   return (
                                     <svg viewBox={`0 0 ${qr.size} ${qr.size}`} width={132} height={132} shapeRendering="crispEdges" role="img"
-                                      aria-label={`QR code to pay ₹${c.entryFee.toLocaleString("en-IN")} to ${ev.upiId}`} className="shrink-0 rounded-md border border-line">
+                                      aria-label={`QR code to pay ₹${amountDue(c, mine).toLocaleString("en-IN")} to ${ev.upiId}`} className="shrink-0 rounded-md border border-line">
                                       <rect width={qr.size} height={qr.size} fill="#fff" />
                                       <path d={qr.d} fill="#17251b" />
                                     </svg>
                                   );
                                 })()}
                                 <p className="text-muted">
-                                  Scan with any UPI app, or pay <strong className="text-ink">₹{c.entryFee.toLocaleString("en-IN")}</strong> to{" "}
+                                  Scan with any UPI app, or pay <strong className="text-ink">₹{amountDue(c, mine).toLocaleString("en-IN")}</strong> to{" "}
                                   <strong className="text-ink">{ev.upiId}</strong> with the note <strong className="text-ink">{payRef(mine.id)}</strong>.
                                 </p>
                               </div>
@@ -232,7 +243,7 @@ export default async function EventPage({ params, searchParams }: Props) {
                       <p className="mt-1 text-[15px] text-muted">{perEntry(c)}. Entries close {dateTime(ev.regClosesAt)}.</p>
                       {left > 0 &&
                         (me.loggedIn ? (
-                          <RegisterForm category={c.id} slug={ev.slug} kind={c.entryType} aged={!!(c.bornOnOrAfter || c.bornOnOrBefore)} ageHint={ageLimitText(c)} fields={ev.regFields} />
+                          <RegisterForm category={c.id} slug={ev.slug} kind={c.entryType} aged={!!(c.bornOnOrAfter || c.bornOnOrBefore)} ageHint={ageLimitText(c)} fields={ev.regFields} paid={c.entryFee > 0} />
                         ) : (
                           <Link href={`/login?next=${encodeURIComponent(`/t/${ev.slug}?c=${c.id}`)}`}
                             className="mt-4 block rounded-lg bg-turf px-5 py-3 text-center font-semibold text-white hover:bg-turf-dark">

@@ -1,8 +1,8 @@
-import { addCourt, addRegField, setUpiId, cancelEvent, closeAllEntries, removeRegField, renameCourt, updateEvent } from "@/app/actions";
+import { addCourt, addRegField, createCoupon, deleteCoupon, setUpiId, cancelEvent, closeAllEntries, removeRegField, renameCourt, updateEvent } from "@/app/actions";
 import { ConfirmAction } from "@/components/ConfirmAction";
 import { ActionForm } from "@/components/ActionForm";
 import { PosterUpload } from "@/components/PosterUpload";
-import type { EventDetail } from "@/lib/data";
+import type { Coupon, EventDetail } from "@/lib/data";
 
 const box = "mt-1 block w-full rounded-lg border border-line bg-white px-3 py-2.5 focus:border-ink focus:outline-none";
 const btn = "h-11 rounded-lg px-4 font-semibold disabled:opacity-60";
@@ -237,3 +237,67 @@ export function DangerZone({ ev }: { ev: EventDetail }) {
   );
 }
 
+
+/** Discount codes: managers see every code and how often it's been used; players only ever type one in. */
+export function CouponsSection({ ev, coupons }: { ev: EventDetail; coupons: Coupon[] }) {
+  const hidden = { event: ev.id, slug: ev.slug };
+  const paid = ev.categories.filter((c) => c.entryFee > 0 && c.status !== "cancelled");
+  const off = (c: Coupon) => (c.kind === "percent" ? `${c.amount}% off` : `₹${c.amount.toLocaleString("en-IN")} off`);
+  return (
+    <section aria-labelledby="coupons">
+      <h2 id="coupons" className="font-display text-3xl font-bold">Discount codes</h2>
+      <p className="max-w-prose text-muted">Players type a code when they register, and the UPI amount drops to match. Codes stay private: only organisers see this list.</p>
+      {coupons.length > 0 && (
+        <ul className="mt-3 max-w-2xl divide-y divide-line">
+          {coupons.map((c) => {
+            const expired = !!c.expiresAt && +new Date(c.expiresAt) <= Date.now();
+            const usedUp = c.maxUses !== null && c.uses >= c.maxUses;
+            return (
+              <li key={c.id} className="flex flex-wrap items-center gap-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <span className="tabular font-semibold tracking-wide">{c.code}</span>
+                  <span className="text-[14px] text-muted">
+                    {" "}{off(c)}{c.categoryId ? `, ${ev.categories.find((x) => x.id === c.categoryId)?.name ?? "one category"} only` : ""}.
+                    {" "}Used {c.uses}{c.maxUses !== null ? ` of ${c.maxUses}` : ""}{c.expiresAt ? `, ${expired ? "expired" : "until"} ${new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" }).format(new Date(c.expiresAt))}` : ""}.
+                    {(expired || usedUp) && <strong className="text-ink"> No longer works.</strong>}
+                  </span>
+                </div>
+                <ConfirmAction action={deleteCoupon} values={{ ...hidden, coupon: c.id }} trigger="Remove"
+                  triggerClassName="h-10 rounded-lg px-3 text-[15px] font-semibold text-danger hover:bg-danger/10" confirmLabel={`Remove ${c.code}`}
+                  title={`Remove ${c.code}?`} body="Nobody can use it from now on. Entries that already used it keep their discount." />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {paid.length === 0 ? (
+        <p className="mt-3 text-[15px] text-muted">Every category is free, so there&apos;s nothing to discount.</p>
+      ) : (
+        <ActionForm action={createCoupon} values={hidden} showOk className="mt-3 max-w-2xl">
+          <div className="grid w-full gap-3 rounded-xl border border-line bg-white p-4 sm:grid-cols-2">
+            <label><span className="font-medium">Code</span>
+              <input name="code" required maxLength={20} placeholder="EARLY20" autoComplete="off" className={`${box} uppercase`} /></label>
+            <fieldset><legend className="font-medium">Discount</legend>
+              <span className="mt-1 flex gap-2">
+                <input name="amount" required inputMode="numeric" placeholder="20" aria-label="Amount" className={`${box} mt-0 w-24`} />
+                <select name="kind" aria-label="Kind of discount" className={`${box} mt-0`} defaultValue="percent">
+                  <option value="percent">% off</option><option value="flat">₹ off</option>
+                </select>
+              </span>
+            </fieldset>
+            <label><span className="font-medium">Category</span>
+              <select name="category" className={box} defaultValue="">
+                <option value="">Any paid category</option>
+                {paid.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select></label>
+            <label><span className="font-medium">Uses allowed</span> <span className="text-[13px] text-muted">(empty for no limit)</span>
+              <input name="max" inputMode="numeric" className={box} /></label>
+            <label><span className="font-medium">Last day</span> <span className="text-[13px] text-muted">(optional)</span>
+              <input name="expires" type="date" className={box} /></label>
+            <button className={`${btn} self-end bg-ink text-chalk`}>Create code</button>
+          </div>
+        </ActionForm>
+      )}
+    </section>
+  );
+}

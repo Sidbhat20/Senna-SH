@@ -25,8 +25,8 @@ const Hidden = ({ values }: { values: Record<string, string> }) => (
 const field = "mt-1 block w-full rounded-lg border border-line bg-white px-3 py-2.5 focus:border-ink focus:outline-none";
 
 /** Registration: singles just register; pairs add a partner; teams name the team and list players. Age-limited categories ask for date of birth. */
-export function RegisterForm({ category, slug, kind, aged, ageHint, fields = [] }: {
-  category: string; slug: string; kind: "solo" | "pair" | "team"; aged: boolean; ageHint?: string; fields?: RegField[];
+export function RegisterForm({ category, slug, kind, aged, ageHint, fields = [], paid = false }: {
+  category: string; slug: string; kind: "solo" | "pair" | "team"; aged: boolean; ageHint?: string; fields?: RegField[]; paid?: boolean;
 }) {
   const [state, action, pending] = useActionState(register, undefined);
   const needDob = aged && kind !== "team";
@@ -89,6 +89,12 @@ export function RegisterForm({ category, slug, kind, aged, ageHint, fields = [] 
           )}
         </div>
       ))}
+      {paid && (
+        <label className="block">
+          <span className="font-medium">Discount code</span> <span className="text-muted">(optional)</span>
+          <input name="code" maxLength={20} autoCapitalize="characters" autoComplete="off" className={`${field} uppercase`} />
+        </label>
+      )}
       <button disabled={pending} className={`${btn} w-full bg-turf text-white hover:bg-turf-dark`}>
         {pending ? "Registering…" : kind === "pair" ? "Register our pair" : kind === "team" ? "Register the team" : "Register"}
       </button>

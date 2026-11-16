@@ -1,9 +1,9 @@
-import { getEvent } from "@/lib/data";
-import { CourtsSection, DangerZone, DownloadsSection, FeesSection, Frozen, QuestionsSection } from "../../EditPanel";
+import { eventCoupons, getEvent } from "@/lib/data";
+import { CouponsSection, CourtsSection, DangerZone, DownloadsSection, FeesSection, Frozen, QuestionsSection } from "../../EditPanel";
 import { StaffSection } from "../../StaffSection";
 
 const GROUPS = [
-  ["fees", "Fees"], ["courts", "Courts"], ["staff", "Staff"], ["questions", "Registration questions"], ["downloads", "Downloads"], ["danger", "Danger zone"],
+  ["fees", "Fees"], ["coupons", "Discount codes"], ["courts", "Courts"], ["staff", "Staff"], ["questions", "Registration questions"], ["downloads", "Downloads"], ["danger", "Danger zone"],
 ] as const;
 
 export default async function SettingsPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -15,6 +15,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ slug:
         {GROUPS.map(([id, label]) => <a key={id} href={`#${id}`} className="text-muted underline-offset-4 hover:text-ink hover:underline">{label}</a>)}
       </nav>
       <div id="fees" className="scroll-mt-6"><FeesSection ev={ev} /></div>
+      <div id="coupons" className="scroll-mt-6"><CouponsSection ev={ev} coupons={await eventCoupons(ev.id)} /></div>
       <div id="courts" className="scroll-mt-6"><CourtsSection ev={ev} /></div>
       <div id="staff" className="scroll-mt-6"><StaffSection ev={ev} /></div>
       <div id="questions" className="scroll-mt-6"><QuestionsSection ev={ev} /></div>

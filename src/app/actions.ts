@@ -1,5 +1,8 @@
 "use server";
 
+import { readPoster, type PosterImage } from "@/lib/poster-ai";
+import { EMPTY_DRAFT, type PosterDraft } from "@/lib/poster-draft";
+import { posterProblem } from "@/lib/poster";
 import { CONFIRM_ERROR, isConfirmed } from "@/lib/confirm";
 import { revalidatePath } from "next/cache";
 import { advance } from "@/lib/fixtures/advance";
@@ -132,7 +135,7 @@ export async function register(_: ActionState, form: FormData): Promise<ActionSt
   };
   const roster = String(form.get("roster") ?? "").split("\n").map((r) => r.trim().slice(0, 80)).filter(Boolean).slice(0, 30);
   if (teamName !== undefined && (teamName.length < 2 || teamName.length > 60)) return { error: "Team names are 2 to 60 characters." };
-  const { error } = await sb.rpc("register_entry", {
+  const { data: entryId, error } = await sb.rpc("register_entry", {
     p_category: category, p_team: null, p_team_name: teamName ?? null, p_partner: form.get("partner")?.toString().trim() || null,
     p_dob: dateOrNull("dob"), p_partner_dob: dateOrNull("partner_dob"), p_roster: roster,
     p_answers: answersFrom(await eventFieldsFor(sb, category), (k) => form.get(k)),
@@ -146,7 +149,50 @@ export async function register(_: ActionState, form: FormData): Promise<ActionSt
       ? "You withdrew from this category earlier. Ask the organiser to put you back in."
       : "You're already registered in this category." };
   }
+  const code = str(form.get("code"), 20);
+  if (code) {
+    const { data: due, error: bad } = await sb.rpc("apply_coupon", { p_entry: entryId, p_code: code });
+    if (bad) return done(form.get("slug"), `You're in, but the code didn't work: ${bad.message}. You can try it again below.`);
+    return done(form.get("slug"), due === 0 ? "You're in, free with your code." : `You're in. With your code you pay ₹${Number(due).toLocaleString("en-IN")}.`);
+  }
   return done(form.get("slug"), "You're in.");
+}
+
+// ---------- Organiser UX P1.2: coupons ----------
+export async function applyCoupon(_: ActionState, form: FormData): Promise<ActionState> {
+  const code = str(form.get("code"), 20);
+  if (!code) return { error: "Type the code." };
+  const sb = await supabaseServer();
+  const { data: due, error } = await sb.rpc("apply_coupon", { p_entry: String(form.get("entry")), p_code: code });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), due === 0 ? "Code applied. Your entry is free and confirmed." : `Code applied. You now pay ₹${Number(due).toLocaleString("en-IN")}.`);
+}
+
+export async function createCoupon(_: ActionState, form: FormData): Promise<ActionState> {
+  const code = str(form.get("code"), 20).toUpperCase();
+  const kind = form.get("kind") === "flat" ? "flat" : "percent";
+  const amount = whole(form.get("amount"));
+  const max = whole(form.get("max") || 0);
+  const day = str(form.get("expires"), 10);
+  if (!/^[A-Z0-9]{3,20}$/.test(code)) return { error: "Codes are 3 to 20 letters or digits, like EARLY20." };
+  if (!(amount > 0) || (kind === "percent" && amount > 100)) return { error: kind === "percent" ? "Give a percentage from 1 to 100." : "Give the rupees off, more than 0." };
+  if (day && !/^\d{4}-\d{2}-\d{2}$/.test(day)) return { error: "Check the expiry date." };
+  const sb = await supabaseServer();
+  const { error } = await sb.from("coupons").insert({
+    event_id: String(form.get("event")), code, kind, amount, category_id: String(form.get("category") || "") || null,
+    max_uses: max > 0 ? max : null, expires_at: day ? new Date(`${day}T23:59:59+05:30`).toISOString() : null, // end of that day in Bangalore
+  });
+  if (error) return { error: error.message.includes("duplicate") ? `There's already a code called ${code}.` : error.message };
+  return done(form.get("slug"), `${code} is ready. Share it with the players you want to have it.`);
+}
+
+export async function deleteCoupon(_: ActionState, form: FormData): Promise<ActionState> {
+  if (!isConfirmed(form)) return { error: CONFIRM_ERROR };
+  const sb = await supabaseServer();
+  const { data, error } = await sb.from("coupons").delete().eq("id", String(form.get("coupon"))).select("id");
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: "That code is already gone, or you can't remove it." };
+  return done(form.get("slug"), "Code removed. Entries that used it keep their discount.");
 }
 
 /** Organiser pastes one entry per line: "Name" or "Name, Club" (a tab works too). */
@@ -585,4 +631,29 @@ export async function sendAnnouncement(_: ActionState, form: FormData): Promise<
   } else return { error: "Unknown message." };
   if (told.startsWith("Emails weren't sent")) return { error: told };
   return done(form.get("slug"), told);
+}
+
+// ---------- Organiser UX P1.1: swap two players in the first round ----------
+export async function swapEntries(_: ActionState, form: FormData): Promise<ActionState> {
+  const side = (k: string) => (form.get(k) === "b" ? "b" : "a");
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("swap_entries", {
+    p_match_a: String(form.get("match_a")), p_side_a: side("side_a"), p_match_b: String(form.get("match_b")), p_side_b: side("side_b"),
+  });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), "Swapped.");
+}
+
+// ---------- Organiser UX P1.3: Smart Create from a poster ----------
+/** Reads a poster into a draft for the wizard. Never publishes: the organiser reviews every field first. */
+export async function draftFromPoster(form: FormData): Promise<{ ok: boolean; error?: string; draft: PosterDraft }> {
+  const sb = await supabaseServer();
+  const { data: auth } = await sb.auth.getUser();
+  if (!auth.user) return { ok: false, error: "Log in first.", draft: EMPTY_DRAFT }; // keeps the paid API to signed-in organisers
+  const file = form.get("poster");
+  if (!(file instanceof File)) return { ok: false, error: "Choose a poster image.", draft: EMPTY_DRAFT };
+  const problem = posterProblem(file);
+  if (problem) return { ok: false, error: problem, draft: EMPTY_DRAFT };
+  const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+  return readPoster({ base64, mediaType: file.type as PosterImage["mediaType"] });
 }

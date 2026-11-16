@@ -824,3 +824,82 @@ describe("schedule timeline", () => {
     expect(days[0].courts.map((c) => c.blocks.map((b) => [b.id, b.left, b.width]))).toEqual([[["1", 0, 25]], [["2", 30, 25]]]);
   });
 });
+
+import { swapProblem, swapSides } from "./swap";
+
+describe("drag-swap", () => {
+  const m = (a: string | null, b: string | null, extra: Partial<{ stage: string; round: number; status: string }> = {}) =>
+    ({ stage: "knockout", round: 1, status: "scheduled", a, b, categoryId: "c1", ...extra });
+
+  it("swaps two sides between first-round matches", () => {
+    const [x, y] = swapSides(m("Arjun", "Ravi"), "b", m("Meera", "Kavya"), "a");
+    expect([x.a, x.b, y.a, y.b]).toEqual(["Arjun", "Meera", "Ravi", "Kavya"]);
+    expect(swapProblem(m("Arjun", "Ravi"), "b", m("Meera", "Kavya"), "a")).toBeNull();
+  });
+
+  it("refuses finished, live, later-round, group and bye matches", () => {
+    const ok = m("Meera", "Kavya");
+    expect(swapProblem(m("A", "B", { status: "done" }), "a", ok, "a")).toMatch(/started or finished/);
+    expect(swapProblem(m("A", "B", { status: "live" }), "a", ok, "a")).toMatch(/started or finished/);
+    expect(swapProblem(m("A", "B", { round: 2 }), "a", ok, "a")).toMatch(/first-round/);
+    expect(swapProblem(m("A", "B", { stage: "group" }), "a", ok, "a")).toMatch(/first-round/);
+    expect(swapProblem(m("A", BYE), "a", ok, "a")).toMatch(/bye/);
+    expect(swapProblem(ok, "a", { ...ok, categoryId: "c2" }, "a")).toMatch(/same category/);
+    expect(swapProblem(ok, "a", ok, "b", true)).toMatch(/different/);
+  });
+});
+
+import { amountDue } from "../payments";
+
+describe("discounted fees", () => {
+  it("an entry with a code pays its own amount everywhere fees are counted", () => {
+    expect(amountDue({ entryFee: 500 }, { feeDue: null })).toBe(500);
+    expect(amountDue({ entryFee: 500 }, { feeDue: 400 })).toBe(400);
+    const e = (id: string, feeDue: number | null) => ({ id, name: id, club: "", seed: null, status: "pending", paymentStatus: "unpaid", checkedIn: false, idChecked: false, roster: [], source: "online", feeDue });
+    const ev = { categories: [{ name: "Open", entryFee: 500, entryRows: [e("a", 400), e("b", null)] }] } as unknown as EventDetail;
+    expect(paymentTotals(paymentRows(ev, new Map())).due).toEqual({ count: 2, rupees: 900 });
+  });
+});
+
+import { readPoster, POSTER_AI_NOT_SET_UP } from "../poster-ai";
+import { toDraft } from "../poster-draft";
+
+describe("Smart Create from a poster", () => {
+  const image = { base64: "AAAA", mediaType: "image/png" as const };
+  const reply = {
+    title: "  Whitefield   Smash Open 2026 ", sport: "Badminton", venue: "Smash Arena", area: "Whitefield",
+    start_date: "2026-12-20", start_time: "07:30", prize: "₹50,000 pool", rules: ["Feather shuttles", ""],
+    categories: [
+      { name: "Men's Singles", format: "knockout", entry_type: "solo", entry_fee: 600, max_entries: 32 },
+      { name: "Mixed Doubles", format: "swiss", entry_type: "duo", entry_fee: -5, max_entries: 999 },
+      { name: "men's singles", format: null, entry_type: null, entry_fee: null, max_entries: null },
+    ],
+  };
+
+  it("a stubbed vision reply fills the draft, cleaned to the wizard's rules", async () => {
+    const res = await readPoster(image, async () => ({ stop_reason: "end_turn", parsed_output: reply }));
+    expect(res.ok).toBe(true);
+    expect(res.draft).toMatchObject({ title: "Whitefield Smash Open 2026", sport: "badminton", startDate: "2026-12-20", startTime: "07:30", rules: ["Feather shuttles"] });
+    expect(res.draft.categories).toEqual([
+      { name: "Men's Singles", format: "knockout", entryType: "solo", entryFee: 600, maxEntries: 32 },
+      { name: "Mixed Doubles", format: null, entryType: null, entryFee: null, maxEntries: null }, // unknown values dropped, duplicate skipped
+    ]);
+  });
+
+  it("malformed replies, refusals and errors never throw and leave an empty draft for the manual wizard", async () => {
+    for (const junk of [null, "not json", [1, 2], { title: 42, start_date: "2026-02-30", categories: "lots" }]) {
+      const res = await readPoster(image, async () => ({ stop_reason: "end_turn", parsed_output: junk }));
+      expect(res.ok).toBe(false);
+      expect(res.draft.categories).toEqual([]);
+    }
+    expect((await readPoster(image, async () => ({ stop_reason: "refusal" }))).ok).toBe(false);
+    const boom = await readPoster(image, async () => { throw new Error("socket hang up"); });
+    expect(boom).toMatchObject({ ok: false, error: expect.stringMatching(/Fill in the details yourself/) });
+    expect(await readPoster(image, null)).toMatchObject({ ok: false, error: POSTER_AI_NOT_SET_UP });
+  });
+
+  it("drafts carry no ids, organisers or statuses, so nothing can publish without the wizard", () => {
+    const d = toDraft({ ...reply, id: "x", organiser_id: "y", status: "open" });
+    expect(Object.keys(d).sort()).toEqual(["area", "categories", "prize", "rules", "sport", "startDate", "startTime", "title", "venue"]);
+  });
+});

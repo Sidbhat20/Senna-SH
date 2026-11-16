@@ -3,6 +3,9 @@
 import type { EventDetail } from "./data";
 import type { Claim } from "./exports";
 
+/** What an entry pays: its discounted fee if a code was used, else the category fee. */
+export const amountDue = (c: { entryFee: number }, e: { feeDue?: number | null }) => e.feeDue ?? c.entryFee;
+
 export type PayMode = "upi" | "cash" | null;
 export type PayRow = {
   id: string; entry: string; category: string; amount: number; status: string; mode: PayMode;
@@ -16,7 +19,7 @@ export function paymentRows(ev: EventDetail, claims: Map<string, Claim>): PayRow
       const claim = claims.get(e.id);
       const paid = e.paymentStatus === "paid";
       return {
-        id: e.id, entry: e.name, category: c.name, amount: c.entryFee, status: e.paymentStatus,
+        id: e.id, entry: e.name, category: c.name, amount: amountDue(c, e), status: e.paymentStatus,
         mode: paid ? (claim ? "upi" : "cash") : null, utr: claim?.ref ?? null, claimedAt: claim?.claimedAt ?? null,
       };
     }));
