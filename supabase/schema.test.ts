@@ -2,7 +2,7 @@
 // the bits Supabase provides (auth schema, roles, realtime publication), then plays events end to end
 // through the same functions and RLS the app uses.
 import { PGlite } from "@electric-sql/pglite";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { separateClubs } from "../src/lib/fixtures/clubs";
 import { doubleElim } from "../src/lib/fixtures/doubleElim";
@@ -12,7 +12,7 @@ import { GAME_CASES } from "../src/lib/fixtures/scoring.cases";
 const SUPABASE_STUB = `
   create role anon nologin; create role authenticated nologin;
   create schema auth;
-  create table auth.users (id uuid primary key, raw_user_meta_data jsonb default '{}');
+  create table auth.users (id uuid primary key, raw_user_meta_data jsonb default '{}', email text, phone text);
   create function auth.uid() returns uuid language sql stable as
     $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   grant usage on schema auth, public to anon, authenticated;
@@ -58,6 +58,7 @@ async function newCategory(format: string, entryType: "solo" | "pair" | "team", 
       [`event-${++n}`],
     );
     const cols = Object.keys(extra);
+    await db.exec("reset role;"); // categories are written by publish_event in the app; set them up directly here
     const c = await one<{ id: string }>(
       `insert into categories (event_id, name, format, entry_type, max_entries, entry_fee${cols.map((k) => `, ${k}`).join("")})
        values ($1, 'Open', $2, $3, $4, $5${cols.map((_, i) => `, $${i + 6}`).join("")}) returning id`,
@@ -89,7 +90,8 @@ async function playOut(category: string, scorer = ORG) {
 beforeAll(async () => {
   db = new PGlite();
   await db.exec(SUPABASE_STUB);
-  for (const f of (process.env.MIGRATIONS ?? "0001_init.sql,0002_events.sql,0003_posters.sql,0004_sports.sql,0005_hardening.sql").split(",")) {
+  const all = readdirSync(new URL("./migrations/", import.meta.url)).filter((f) => f.endsWith(".sql")).sort();
+  for (const f of process.env.MIGRATIONS?.split(",") ?? all) {
     await db.exec(readFileSync(new URL(`./migrations/${f}`, import.meta.url), "utf8"));
   }
   for (const [i, id] of U.entries()) {
@@ -116,7 +118,7 @@ describe("schema", () => {
   it("nobody can add categories or courts to someone else's event", async () => {
     const { event } = await newCategory("knockout", "solo", 8);
     await expect(as(U[2], () => q("insert into categories (event_id, name, format, entry_type, max_entries) values ($1, 'Hack', 'knockout', 'solo', 4)", [event])))
-      .rejects.toThrow(/row-level security/);
+      .rejects.toThrow(/row-level security|permission denied/);
     await expect(as(U[2], () => q("insert into courts (event_id, name) values ($1, 'Court X')", [event]))).rejects.toThrow(/row-level security/);
   });
 
@@ -318,10 +320,305 @@ describe("schema", () => {
     expect(await as(null, () => q("select id, partner_name from entries where id = $1", [id]))).toEqual([{ id, partner_name: "Asha" }]);
 
     await expect(as(ORG, () => q("update events set organiser_id = $1 where id = $2", [U[3], event]))).rejects.toThrow(/permission denied/);
-    await as(ORG, () => q("update events set poster_url = 'https://example.com/x.jpg', status = 'open' where id = $1", [event]));
+    await as(ORG, () => q("update events set poster_url = 'https://example.com/x.jpg' where id = $1", [event]));
     await expect(as(ORG, () => q("update entries set user_id = $1 where id = $2", [U[3], id]))).rejects.toThrow(/permission denied/);
     await as(ORG, () => q("update entries set seed = 1, status = 'confirmed', payment_status = 'paid' where id = $1", [id]));
     expect((await one("select seed from entries where id = $1", [id])).seed).toBe(1);
+  });
+
+  it("risk 1: strangers can't mark paid, check in or award walkovers", async () => {
+    const { category } = await newCategory("knockout", "solo", 4, 300);
+    const a = await register(U[1], category);
+    const b = await register(U[2], category);
+    expect(await as(U[3], () => q("update entries set status = 'confirmed', payment_status = 'paid' where id = $1 returning id", [a]))).toEqual([]);
+    expect((await one("select payment_status from entries where id = $1", [a])).payment_status).toBe("unpaid");
+    await expect(as(U[3], () => q("select check_in($1, true)", [a]))).rejects.toThrow(/desk/);
+    await as(ORG, () => q("update entries set status = 'confirmed' where id = any($1)", [[a, b]]));
+    await as(ORG, () => q("select save_fixtures($1, $2)", [category, JSON.stringify(knockout([a, b]))]));
+    const m = await one<{ id: string }>("select id from matches where category_id = $1", [category]);
+    await expect(as(U[3], () => q("select award_walkover($1, 'a')", [m.id]))).rejects.toThrow(/can't change/);
+  });
+
+  it("risk 2: a failed team registration leaves no team behind", async () => {
+    const { category } = await newCategory("knockout", "team", 2);
+    for (const u of [U[1], U[2]]) {
+      await as(u, () => q("select register_entry($1, null, null, null, null, '{}', $2)", [category, `Team ${u.slice(-2)}`]));
+    }
+    const before = (await one<{ n: number }>("select count(*)::int as n from teams")).n;
+    await expect(as(U[3], () => q("select register_entry($1, null, null, null, null, '{}', 'Late Team')", [category]))).rejects.toThrow(/full/);
+    expect((await one<{ n: number }>("select count(*)::int as n from teams")).n).toBe(before);
+    expect(await q("select name from entry_names where category_id = $1", [category])).toHaveLength(2);
+  });
+
+  it("risk 3: publish_event is all or nothing", async () => {
+    const ev = (slug: string) => JSON.stringify({
+      slug, title: "Atomic Open", sport: "badminton", venue: "Hall",
+      starts_at: "2030-01-10T09:00:00+05:30", reg_closes_at: "2030-01-08T21:00:00+05:30",
+    });
+    const good = { name: "Men's Singles", format: "knockout", entry_type: "solo", max_entries: 16 };
+    const res = await as(ORG, () => one<{ r: { id: string; slug: string } }>("select publish_event($1, $2, 3) as r", [ev("atomic-ok"), JSON.stringify([good])]));
+    expect(res.r.slug).toBe("atomic-ok");
+    expect((await one("select status from events where id = $1", [res.r.id])).status).toBe("open");
+    expect((await one("select count(*)::int as n from courts where event_id = $1", [res.r.id])).n).toBe(3);
+    expect((await one("select count(*)::int as n from referee_links where event_id = $1", [res.r.id])).n).toBe(4);
+
+    const bad = JSON.stringify([good, { ...good, name: "Broken", max_entries: 1 }]);
+    await expect(as(ORG, () => q("select publish_event($1, $2, 2)", [ev("atomic-bad"), bad]))).rejects.toThrow();
+    expect(await q("select id from events where slug = 'atomic-bad'")).toEqual([]);
+    await expect(as(null, () => q("select publish_event($1, $2, 2)", [ev("atomic-anon"), JSON.stringify([good])]))).rejects.toThrow(/permission denied/);
+  });
+
+  it("risk 5: referee links expire, and rotating revokes the old link", async () => {
+    const { event } = await newCategory("knockout", "solo", 4);
+    const link = await as(ORG, () => one<{ token: string }>("insert into referee_links (event_id) values ($1) returning token", [event]));
+    await expect(as(U[4], () => q("select rotate_referee_link($1)", [link.token]))).rejects.toThrow(/Only the organiser/);
+    const fresh = await as(ORG, () => one<{ t: string }>("select rotate_referee_link($1) as t", [link.token]));
+    await expect(as(U[5], () => q("select join_referee($1)", [link.token]))).rejects.toThrow(/expired/);
+    await as(U[5], () => q("select join_referee($1)", [fresh.t]));
+    await q("update referee_links set expires_at = now() - interval '1 minute' where token = $1", [fresh.t]);
+    await expect(as(U[6], () => q("select join_referee($1)", [fresh.t]))).rejects.toThrow(/expired/);
+  });
+
+  it("organiser home: owners and co-organisers see their drafts; strangers don't", async () => {
+    const draft = await as(ORG, () => one<{ id: string }>(
+      `insert into events (slug, title, sport, venue, starts_at, reg_closes_at, status)
+       values ('home-draft', 'Home draft', 'badminton', 'Hall', now() + interval '9 days', now() + interval '8 days', 'draft') returning id`));
+    const { t } = await as(ORG, () => one<{ t: string }>("select create_staff_invite($1, 'Ravi') as t", [draft.id]));
+    await as(U[10], () => q("select join_staff($1)", [t]));
+    expect(await as(ORG, () => q("select id from events where id = $1", [draft.id]))).toHaveLength(1);
+    expect(await as(U[10], () => q("select id from events where id = $1", [draft.id]))).toHaveLength(1);
+    expect(await as(U[11], () => q("select id from events where id = $1", [draft.id]))).toEqual([]);
+    await expect(as(U[11], () => q("insert into officials (event_id, user_id, role) values ($1, $2, 'co_organiser')", [draft.id, U[11]])))
+      .rejects.toThrow(/row-level security|permission denied/);
+  });
+
+  it("edit event: organisers update details; strangers and impossible dates are refused", async () => {
+    const { event } = await newCategory("knockout", "solo", 8);
+    const edit = (who: string, p: object) => as(who, () => q("select update_event($1, $2)", [event, JSON.stringify(p)]));
+    await expect(edit(U[2], { title: "Hijacked Open" })).rejects.toThrow(/Only this event's organisers/);
+    await edit(ORG, { title: "Renamed Open", venue: "New Hall", rules: ["Best of 3", " ", "Shuttles provided"], match_minutes: 30 });
+    expect(await one("select title, venue, rules, match_minutes from events where id = $1", [event]))
+      .toEqual({ title: "Renamed Open", venue: "New Hall", rules: ["Best of 3", "Shuttles provided"], match_minutes: 30 });
+    await expect(edit(ORG, { reg_closes_at: "2099-01-01T00:00:00Z" })).rejects.toThrow(/check constraint/); // after the start
+    await expect(as(ORG, () => q("update events set status = 'completed' where id = $1", [event]))).rejects.toThrow(/permission denied/);
+    await expect(as(ORG, () => q("update events set sport = 'football' where id = $1", [event]))).rejects.toThrow(/permission denied/);
+  });
+
+  it("edit event: courts can be added (with a referee link) and renamed by organisers only", async () => {
+    const { event } = await newCategory("knockout", "solo", 8);
+    await expect(as(U[2], () => q("select add_court($1, 'Court 9')", [event]))).rejects.toThrow(/organisers/);
+    const { id } = await as(ORG, () => one<{ id: string }>("select add_court($1, 'Court 9') as id", [event]));
+    expect((await one("select count(*)::int as n from referee_links where court_id = $1", [id])).n).toBe(1);
+    await expect(as(ORG, () => q("select add_court($1, 'court 9')", [event]))).rejects.toThrow(/already a court/);
+    await expect(as(U[2], () => q("select rename_court($1, 'Centre Court')", [id]))).rejects.toThrow(/organisers/);
+    await as(ORG, () => q("select rename_court($1, 'Centre Court')", [id]));
+    expect((await one("select name from courts where id = $1", [id])).name).toBe("Centre Court");
+  });
+
+  it("edit event: closing a category stops entries; it reopens only before the draw; format is fixed", async () => {
+    const { category } = await newCategory("knockout", "solo", 8);
+    await expect(as(U[2], () => q("select set_category_status($1, 'locked')", [category]))).rejects.toThrow(/organisers/);
+    await as(ORG, () => q("select set_category_status($1, 'locked')", [category]));
+    await expect(register(U[1], category)).rejects.toThrow(/closed/);
+    await as(ORG, () => q("select set_category_status($1, 'open')", [category]));
+    const a = await register(U[1], category);
+    const b = await register(U[2], category);
+    await as(ORG, () => q("select set_category_status($1, 'locked')", [category]));
+    await as(ORG, () => q("select save_fixtures($1, $2)", [category, JSON.stringify(knockout([a, b]))]));
+    await expect(as(ORG, () => q("select set_category_status($1, 'open')", [category]))).rejects.toThrow(/can't be set|can't reopen/);
+    await expect(as(ORG, () => q("update categories set format = 'league' where id = $1", [category]))).rejects.toThrow(/permission denied/);
+  });
+
+  it("edit event: close all entries, then cancel; a cancelled event can't be edited", async () => {
+    const { event, category } = await newCategory("knockout", "solo", 8);
+    await expect(as(U[3], () => q("select cancel_event($1)", [event]))).rejects.toThrow(/organisers/);
+    expect((await as(ORG, () => one<{ n: number }>("select close_all_entries($1) as n", [event]))).n).toBe(1);
+    expect((await one("select status from categories where id = $1", [category])).status).toBe("locked");
+    await as(ORG, () => q("select cancel_event($1)", [event]));
+    expect(await one("select e.status as event, c.status as category from events e join categories c on c.event_id = e.id where e.id = $1", [event]))
+      .toEqual({ event: "cancelled", category: "cancelled" });
+    await expect(as(ORG, () => q("select update_event($1, $2)", [event, '{"title":"Back again"}']))).rejects.toThrow(/cancelled/);
+    expect(await as(null, () => q("select status from events where id = $1", [event]))).toEqual([{ status: "cancelled" }]);
+  });
+
+  it("staff: only the owner invites; links are single-use and expire; strangers can't add staff directly", async () => {
+    const { event } = await newCategory("knockout", "solo", 8);
+    await expect(as(U[2], () => q("select create_staff_invite($1, 'me')", [event]))).rejects.toThrow(/owner/);
+    const { t } = await as(ORG, () => one<{ t: string }>("select create_staff_invite($1, 'Asha') as t", [event]));
+    expect(await as(U[2], () => q("select token from staff_invites where event_id = $1", [event]))).toEqual([]);
+    await expect(as(ORG, () => q("select join_staff($1)", [t]))).rejects.toThrow(/already own/);
+    await as(U[3], () => q("select join_staff($1)", [t]));
+    await expect(as(U[4], () => q("select join_staff($1)", [t]))).rejects.toThrow(/used or has expired/);
+    // a co-organiser can't invite more co-organisers or add staff directly
+    await expect(as(U[3], () => q("select create_staff_invite($1, 'x')", [event]))).rejects.toThrow(/owner/);
+    await expect(as(U[3], () => q("insert into officials (event_id, user_id, role) values ($1, $2, 'co_organiser')", [event, U[5]])))
+      .rejects.toThrow(/permission denied/);
+    const old = await as(ORG, () => one<{ t: string }>("select create_staff_invite($1, 'late') as t", [event]));
+    await q("update staff_invites set expires_at = now() - interval '1 minute' where token = $1", [old.t]);
+    await expect(as(U[5], () => q("select join_staff($1)", [old.t]))).rejects.toThrow(/expired/);
+    const withdrawn = await as(ORG, () => one<{ t: string }>("select create_staff_invite($1, 'nope') as t", [event]));
+    await as(ORG, () => q("select revoke_staff_invite($1)", [withdrawn.t]));
+    await expect(as(U[5], () => q("select join_staff($1)", [withdrawn.t]))).rejects.toThrow(/used or has expired/);
+  });
+
+  it("staff: a co-organiser runs the event (walk-ins, draw, edits) but can't delete or transfer it", async () => {
+    const draft = await as(ORG, () => one<{ id: string }>(
+      `insert into events (slug, title, sport, venue, starts_at, reg_closes_at, status)
+       values ('co-run', 'Co-run Open', 'badminton', 'Hall', now() + interval '9 days', now() + interval '8 days', 'draft') returning id`));
+    await db.exec("reset role;");
+    const cat = await one<{ id: string }>(
+      "insert into categories (event_id, name, format, entry_type, max_entries) values ($1, 'Open', 'knockout', 'solo', 8) returning id", [draft.id]);
+    const { t } = await as(ORG, () => one<{ t: string }>("select create_staff_invite($1, 'Co') as t", [draft.id]));
+    await as(U[6], () => q("select join_staff($1)", [t]));
+
+    await as(U[6], () => q("select add_entries($1, $2)", [cat.id, JSON.stringify([{ name: "Walk-in A" }, { name: "Walk-in B" }])]));
+    const ids = (await q<{ id: string }>("select id from entries where category_id = $1 order by created_at", [cat.id])).map((r) => r.id);
+    await as(U[6], () => q("select save_fixtures($1, $2)", [cat.id, JSON.stringify(knockout(ids))]));
+    await as(U[6], () => q("select update_event($1, $2)", [draft.id, '{"venue":"Co Hall"}']));
+    expect((await one("select venue from events where id = $1", [draft.id])).venue).toBe("Co Hall");
+
+    expect(await as(U[6], () => q("delete from events where id = $1 returning id", [draft.id]))).toEqual([]);
+    await expect(as(U[6], () => q("update events set organiser_id = $1 where id = $2", [U[6], draft.id]))).rejects.toThrow(/permission denied/);
+    expect((await one("select organiser_id from events where id = $1", [draft.id])).organiser_id).toBe(ORG);
+  });
+
+  it("staff: removing someone takes their access away at once; co-organisers can remove referees only", async () => {
+    const { event, category } = await newCategory("knockout", "solo", 4);
+    const { t } = await as(ORG, () => one<{ t: string }>("select create_staff_invite($1, 'Co') as t", [event]));
+    await as(U[7], () => q("select join_staff($1)", [t]));
+    const ref = await as(ORG, () => one<{ token: string }>("insert into referee_links (event_id) values ($1) returning token", [event]));
+    await as(U[8], () => q("select join_referee($1)", [ref.token]));
+    const a = await register(U[1], category);
+    const b = await register(U[2], category);
+    await as(ORG, () => q("select save_fixtures($1, $2)", [category, JSON.stringify(knockout([a, b]))]));
+    const m = await one<{ id: string }>("select id from matches where category_id = $1", [category]);
+
+    expect((await as(U[8], () => one<{ ok: boolean }>("select can_score_match($1) as ok", [m.id]))).ok).toBe(true);
+    await expect(as(U[7], () => q("select remove_official($1, $2)", [event, ORG]))).rejects.toThrow(/isn't on this tournament's staff/);
+    await as(U[7], () => q("select remove_official($1, $2)", [event, U[8]])); // co-organiser removes the referee
+    expect((await as(U[8], () => one<{ ok: boolean }>("select can_score_match($1) as ok", [m.id]))).ok).toBe(false);
+
+    const { t: t2 } = await as(ORG, () => one<{ t: string }>("select create_staff_invite($1, 'Co 2') as t", [event]));
+    await as(U[9], () => q("select join_staff($1)", [t2]));
+    await expect(as(U[7], () => q("select remove_official($1, $2)", [event, U[9]]))).rejects.toThrow(/owner/);
+    expect((await as(U[7], () => one<{ ok: boolean }>("select can_manage($1) as ok", [event]))).ok).toBe(true);
+    await as(ORG, () => q("select remove_official($1, $2)", [event, U[7]]));
+    expect((await as(U[7], () => one<{ ok: boolean }>("select can_manage($1) as ok", [event]))).ok).toBe(false);
+    await expect(as(U[7], () => q("select update_event($1, $2)", [event, '{"title":"Not any more"}']))).rejects.toThrow(/organisers/);
+  });
+
+  it("withdraw: players free their own spot before the draw; not someone else's, and not after the draw", async () => {
+    const { category } = await newCategory("knockout", "solo", 2);
+    const a = await register(U[1], category);
+    const b = await register(U[2], category);
+    await expect(register(U[3], category)).rejects.toThrow(/full/);
+    await expect(as(U[3], () => q("select withdraw_entry($1)", [a]))).rejects.toThrow(/only withdraw your own entry before the draw/);
+    await as(U[1], () => q("select withdraw_entry($1)", [a]));
+    expect((await one("select status from entries where id = $1", [a])).status).toBe("withdrawn");
+    await expect(register(U[1], category)).rejects.toThrow(/duplicate key/); // the withdrawn entry still holds U1's slot
+    const c = await register(U[3], category); // the freed spot is taken
+
+    await as(ORG, () => q("select save_fixtures($1, $2)", [category, JSON.stringify(knockout([b, c]))]));
+    await expect(as(U[2], () => q("select withdraw_entry($1)", [b]))).rejects.toThrow(/only withdraw your own entry before the draw/);
+  });
+
+  it("withdraw: a team captain withdraws the team; a team member can't", async () => {
+    const { category } = await newCategory("knockout", "team", 4);
+    const entry = await as(U[4], async () =>
+      (await one<{ id: string }>("select register_entry($1, null, null, null, null, '{}', 'Hebbal Hawks') as id", [category])).id);
+    const team = await one<{ team_id: string }>("select team_id from entries where id = $1", [entry]);
+    const { tok } = await as(U[4], () => one<{ tok: string }>("select my_team_invite($1) as tok", [team.team_id]));
+    await as(U[5], () => q("select join_team($1)", [tok]));
+    await expect(as(U[5], () => q("select withdraw_entry($1)", [entry]))).rejects.toThrow(/only withdraw your own entry/);
+    await as(U[4], () => q("select withdraw_entry($1)", [entry]));
+    expect((await one("select status from entries where id = $1", [entry])).status).toBe("withdrawn");
+  });
+
+  it("exports: contact details go to the event's managers only", async () => {
+    const { event, category } = await newCategory("knockout", "solo", 4);
+    await q("update auth.users set email = 'asha@example.com', phone = '+919876543210' where id = $1", [U[1]]);
+    const entry = await register(U[1], category);
+    await expect(as(null, () => q("select * from entry_contacts($1)", [event]))).rejects.toThrow(/permission denied/);
+    await expect(as(U[1], () => q("select * from entry_contacts($1)", [event]))).rejects.toThrow(/organisers/);
+    const rows = await as(ORG, () => q("select * from entry_contacts($1)", [event]));
+    expect(rows).toEqual([{ entry_id: entry, email: "asha@example.com", phone: "+919876543210" }]);
+    const { t } = await as(ORG, () => one<{ t: string }>("select create_staff_invite($1, 'Co') as t", [event]));
+    await as(U[2], () => q("select join_staff($1)", [t]));
+    expect(await as(U[2], () => q("select email from entry_contacts($1)", [event]))).toEqual([{ email: "asha@example.com" }]);
+  });
+
+  it("notifications: drawing queues one email per confirmed player, once; drafts and strangers send nothing", async () => {
+    await q("update auth.users set email = 'player' || right(id::text, 2) || '@example.com'");
+    const { event, category } = await newCategory("knockout", "solo", 8, 300);
+    const a = await register(U[1], category);
+    const b = await register(U[2], category);
+    const pending = await register(U[3], category); // unpaid, so not confirmed
+    await as(ORG, () => q("update entries set status = 'confirmed' where id = any($1)", [[a, b]]));
+    await as(ORG, () => q("select save_fixtures($1, $2)", [category, JSON.stringify(knockout([a, b]))]));
+
+    const queue = (who: string, kind: string, extra: unknown[] = [category, null, "draw"]) =>
+      as(who, () => q<{ email: string; kind: string; payload: { opponent: string; category: string } }>(
+        "select * from queue_notifications($1, $2, $3, $4, $5)", [event, kind, ...extra]));
+    await expect(queue(U[4], "fixtures_released")).rejects.toThrow(/organisers/);
+    const sent = await queue(ORG, "fixtures_released");
+    expect(sent.map((r) => r.email).sort()).toEqual(["player01@example.com", "player02@example.com"]);
+    expect(sent.find((r) => r.email === "player01@example.com")!.payload).toMatchObject({ category: "Open", opponent: "Player 2" });
+    expect(await queue(ORG, "fixtures_released")).toEqual([]); // same draw, same people: no second email
+
+    const m = await one<{ id: string }>("select id from matches where category_id = $1", [category]);
+    const called = await queue(ORG, "match_called", [null, m.id, "call-1"]);
+    expect(called).toHaveLength(2);
+    const cancelled = await queue(ORG, "event_cancelled", [null, null, "cancel"]);
+    expect(cancelled.map((r) => r.email)).toContain("player03@example.com"); // unpaid entries hear about cancellation too
+    void pending;
+
+    const ids = sent.map((r) => (r as unknown as { id: string }).id);
+    expect((await as(U[4], () => one<{ n: number }>("select mark_notifications($1) as n", [ids]))).n).toBe(0);
+    expect((await as(ORG, () => one<{ n: number }>("select mark_notifications($1) as n", [ids]))).n).toBe(2);
+    expect((await one("select count(*)::int as n from notifications where id = any($1) and sent_at is not null", [ids])).n).toBe(2);
+
+    const draft = await as(ORG, () => one<{ id: string }>(
+      `insert into events (slug, title, sport, venue, starts_at, reg_closes_at, status)
+       values ('quiet-draft', 'Quiet draft', 'badminton', 'Hall', now() + interval '9 days', now() + interval '8 days', 'draft') returning id`));
+    expect(await as(ORG, () => q("select * from queue_notifications($1, 'event_cancelled')", [draft.id]))).toEqual([]);
+  });
+
+  it("import: entries arrive with seeds, all or nothing, within the category limit", async () => {
+    const { category } = await newCategory("knockout", "solo", 3);
+    const add = (rows: object[]) => as(ORG, () => q("select add_entries($1, $2)", [category, JSON.stringify(rows)]));
+    await expect(add([{ name: "A", seed: 1 }, { name: "B", seed: 0 }])).rejects.toThrow(/whole numbers from 1 to 999/);
+    await expect(add([{ name: "A", seed: 1.5 }])).rejects.toThrow(/whole numbers/);
+    expect((await one("select count(*)::int as n from entries where category_id = $1", [category])).n).toBe(0);
+    await add([{ name: "Arjun Rao", club: "Smash", seed: 1 }, { name: "Kavya Menon", seed: null }]);
+    expect(await q("select display_name, club, seed from entries where category_id = $1 order by created_at, display_name", [category]))
+      .toEqual([{ display_name: "Arjun Rao", club: "Smash", seed: 1 }, { display_name: "Kavya Menon", club: "", seed: null }]);
+    await expect(add([{ name: "C" }, { name: "D" }])).rejects.toThrow(/Only 1 spots left/);
+    expect((await one("select count(*)::int as n from entries where category_id = $1", [category])).n).toBe(2);
+  });
+
+  it("move a match: organisers only; court and player clashes are refused; started matches stay put", async () => {
+    const { event, category } = await newCategory("knockout", "solo", 4);
+    const [c1, c2] = await as(ORG, () => q<{ id: string }>("select add_court($1, 'Court A') as id union all select add_court($1, 'Court B')", [event]));
+    const ids = [await register(U[1], category), await register(U[2], category), await register(U[3], category), await register(U[4], category)];
+    await as(ORG, () => q("select save_fixtures($1, $2)", [category, JSON.stringify(knockout(ids))]));
+    const [m1, m2] = await q<{ id: string }>("select id from matches where category_id = $1 and round = 1 order by slot", [category]);
+    await as(ORG, () => q("select save_schedule($1, $2)", [event, JSON.stringify([
+      { id: m1.id, court: c1.id, at: "2030-03-01T04:00:00Z" }, { id: m2.id, court: c2.id, at: "2030-03-01T04:00:00Z" },
+    ])]));
+    const move = (who: string, id: string, court: string, at: string) => as(who, () => q("select move_match($1, $2, $3)", [id, court, at]));
+
+    await expect(move(U[5], m2.id, c2.id, "2030-03-01T06:00:00Z")).rejects.toThrow(/organisers/);
+    await expect(move(ORG, m2.id, c1.id, "2030-03-01T04:20:00Z")).rejects.toThrow(/Court A already has a match at 09:30/); // slot 35 min
+    await move(ORG, m2.id, c1.id, "2030-03-01T04:35:00Z"); // back-to-back is fine
+    expect(await one("select court_id, scheduled_at from matches where id = $1", [m2.id])).toEqual({ court_id: c1.id, scheduled_at: new Date("2030-03-01T04:35:00Z") });
+
+    const final = await one<{ id: string }>("select id from matches where category_id = $1 and round = 2", [category]);
+    // put m1's first player into the final at 13:30 on Court B (set up directly; in play this happens when m1 finishes)
+    await q("update matches set entry_a = (select entry_a from matches where id = $1), scheduled_at = '2030-03-01T08:00:00Z', court_id = $2 where id = $3", [m1.id, c2.id, final.id]);
+    await expect(move(ORG, final.id, c2.id, "2030-03-01T04:10:00Z")).rejects.toThrow(/A player in this match is on Court A/);
+
+    await as(ORG, () => q("select update_games($1, $2)", [m1.id, "[[1,0]]"]));
+    await expect(move(ORG, m1.id, c2.id, "2030-03-01T09:00:00Z")).rejects.toThrow(/haven't started/);
   });
 });
 

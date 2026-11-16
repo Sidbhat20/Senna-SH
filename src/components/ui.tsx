@@ -37,22 +37,26 @@ export function feeRange(cats: Pick<Category, "entryFee">[]) {
 export async function SiteHeader() {
   const user = await currentUser();
   return (
-    <header className="border-b border-line bg-chalk">
-      <div className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3">
-        <Link href="/" className="flex items-center gap-2" aria-label="Sportshunt home">
+    <header className="border-b border-line bg-chalk print:hidden">
+      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:gap-6">
+        <Link href="/" className="flex shrink-0 items-center gap-2" aria-label="Sportshunt home">
           <Image src="/sh-logo.png" alt="" width={34} height={34} priority />
-          <span className="font-display text-2xl font-bold tracking-tight">Sportshunt</span>
+          {/* phones show just the mark so the nav fits on one line */}
+          <span className="hidden font-display text-2xl font-bold tracking-tight sm:inline">Sportshunt</span>
         </Link>
-        <nav className="ml-auto flex items-center gap-1 text-[15px] font-medium sm:gap-4">
-          <Link href="/tournaments" className="rounded px-2 py-1 hover:bg-line/60">Tournaments</Link>
-          <Link href="/organise/new" className="hidden rounded px-2 py-1 hover:bg-line/60 sm:inline">Organise</Link>
-          {user && <Link href="/referee" className="rounded px-2 py-1 hover:bg-line/60">Scoring</Link>}
+        <nav className="ml-auto flex items-center gap-0.5 whitespace-nowrap text-[14px] font-medium sm:gap-4 sm:text-[15px]">
+          <Link href="/tournaments" className="rounded px-1.5 py-1 hover:bg-line/60 sm:px-2">
+            <span className="sm:hidden">Events</span>
+            <span className="hidden sm:inline">Tournaments</span>
+          </Link>
+          <Link href="/organise" className="rounded px-1.5 py-1 hover:bg-line/60 sm:px-2">Organise</Link>
+          {user && <Link href="/referee" className="rounded px-1.5 py-1 hover:bg-line/60 sm:px-2">Scoring</Link>}
           {user ? (
             <form action="/auth/signout" method="post">
-              <button className="rounded border border-ink px-3 py-1.5 hover:bg-ink hover:text-chalk">Log out</button>
+              <button className="rounded border border-ink px-2 py-1.5 hover:bg-ink hover:text-chalk sm:px-3">Log out</button>
             </form>
           ) : (
-            <Link href="/login" className="rounded bg-ink px-3 py-1.5 text-chalk hover:bg-pitch">Log in</Link>
+            <Link href="/login" className="rounded bg-ink px-2.5 py-1.5 text-chalk hover:bg-pitch sm:px-3">Log in</Link>
           )}
         </nav>
       </div>
@@ -62,7 +66,7 @@ export async function SiteHeader() {
 
 export function SiteFooter() {
   return (
-    <footer className="mt-20 border-t border-line">
+    <footer className="mt-20 border-t border-line print:hidden">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-8 text-sm text-muted">
         <span className="font-display text-base font-semibold text-ink">Get, set, hunt.</span>
         <span>Made for Bangalore&apos;s weekend leagues.</span>

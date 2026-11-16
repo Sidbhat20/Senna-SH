@@ -1,13 +1,9 @@
 import Link from "next/link";
 import type { Played } from "@/lib/fixtures/advance";
+import { roundName } from "@/lib/fixtures/rounds";
 import { BYE, type StageKind } from "@/lib/fixtures/types";
 
-export function roundName(stage: StageKind, round: number, rounds: number) {
-  if (stage === "grand_final") return "Grand final";
-  if (stage === "losers") return `Losers round ${round}`;
-  const fromEnd = rounds - round;
-  return fromEnd === 0 ? "Final" : fromEnd === 1 ? "Semi-finals" : fromEnd === 2 ? "Quarter-finals" : `Round ${round}`;
-}
+export { roundName }; // lives in lib/fixtures/rounds so pure code and tests can use it
 
 function Slot({ name, score, won, done }: { name: string | null; score?: number; won: boolean; done: boolean }) {
   return (

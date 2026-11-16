@@ -11,6 +11,8 @@ import { schedule, type SchedMatch } from "@/lib/fixtures/schedule";
 import { standings } from "@/lib/fixtures/standings";
 import type { Match, StageKind } from "@/lib/fixtures/types";
 import { capFor, FORMATS, LAUNCH_SPORTS, SPORT_DEFAULTS, type Format, type Sport } from "@/lib/sports";
+import { readEntriesCsv } from "@/lib/csv-import";
+import { notify } from "@/lib/notify";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export type ActionState = { error?: string; ok?: string } | undefined;
@@ -74,36 +76,29 @@ export async function createEvent(d: NewEvent): Promise<ActionState & { slug?: s
   }
 
   const slug = `${slugify(title)}-${Math.random().toString(36).slice(2, 6)}`;
-  const { data: ev, error } = await sb.from("events").insert({
-    slug, title, sport: d.sport, venue: str(d.venue, 120), area: str(d.area, 120), prize: str(d.prize),
-    rules: String(d.rules ?? "").split("\n").map((r) => r.trim()).filter(Boolean).slice(0, 30),
-    starts_at: starts.toISOString(), reg_closes_at: closes.toISOString(), match_minutes: matchMinutes,
-    break_minutes: breakMinutes, age_check: d.ageCheck === "desk" ? "desk" : "self", status: "draft",
-  }).select("id").single();
-  if (error) return { error: `Couldn't publish: ${error.message}` };
-
-  const steps = await Promise.all([
-    sb.from("categories").insert(d.categories.map((c, i) => ({
-      event_id: ev.id, name: str(c.name, 60), format: c.format, entry_type: c.entryType, sort: i,
+  // One transaction in Postgres: the event, its categories, courts and referee links all exist, or none do.
+  const { data, error } = await sb.rpc("publish_event", {
+    p_event: {
+      slug, title, sport: d.sport, venue: str(d.venue, 120), area: str(d.area, 120), prize: str(d.prize),
+      rules: String(d.rules ?? "").split("\n").map((r) => r.trim()).filter(Boolean).slice(0, 30),
+      starts_at: starts.toISOString(), reg_closes_at: closes.toISOString(), match_minutes: matchMinutes,
+      break_minutes: breakMinutes, age_check: d.ageCheck === "desk" ? "desk" : "self",
+    },
+    p_categories: d.categories.map((c) => ({
+      name: str(c.name, 60), format: c.format, entry_type: c.entryType,
       group_count: c.format === "groups_knockout" ? whole(c.groupCount) : null,
       team_size: c.entryType === "team" ? Math.min(30, Math.max(2, whole(c.teamSize) || 2)) : c.entryType === "pair" ? 2 : 1,
       max_entries: whole(c.maxEntries), entry_fee: whole(c.entryFee),
       scoring: racquet ? "games" : "goals", best_of: racquet ? whole(c.bestOf) : 1, points_to: racquet ? whole(c.pointsTo) : 21,
       points_cap: racquet ? capFor(d.sport as Sport, whole(c.pointsTo)) : null,
       born_on_or_after: c.bornOnOrAfter || null, born_on_or_before: c.bornOnOrBefore || null,
-    }))),
-    sb.from("courts").insert(Array.from({ length: courts }, (_, i) => ({ event_id: ev.id, name: `Court ${i + 1}`, sort: i }))).select("id"),
-  ]);
-  const failed = steps.find((s) => s.error);
-  if (failed) {
-    await sb.from("events").delete().eq("id", ev.id); // drafts can be deleted by their organiser
-    return { error: `Couldn't publish: ${failed.error!.message}` };
-  }
-  const courtRows = (steps[1].data ?? []) as { id: string }[];
-  await sb.from("referee_links").insert([{ event_id: ev.id, court_id: null }, ...courtRows.map((c) => ({ event_id: ev.id, court_id: c.id }))]);
-  await sb.from("events").update({ status: "open" }).eq("id", ev.id);
+    })),
+    p_courts: courts,
+  });
+  if (error) return { error: `Couldn't publish: ${error.message}` };
+  const ev = data as { id: string; slug: string };
   revalidatePath("/tournaments");
-  return { ok: "Published", slug, id: ev.id }; // the browser uploads the poster (if any), then opens the page
+  return { ok: "Published", slug: ev.slug, id: ev.id }; // the browser uploads the poster (if any), then opens the page
 }
 
 const done = (slug: FormDataEntryValue | null, ok: string): ActionState => {
@@ -120,19 +115,20 @@ export async function register(_: ActionState, form: FormData): Promise<ActionSt
     return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
   };
   const roster = String(form.get("roster") ?? "").split("\n").map((r) => r.trim().slice(0, 80)).filter(Boolean).slice(0, 30);
-  let teamId: string | null = null;
-  if (teamName !== undefined) {
-    if (teamName.length < 2 || teamName.length > 60) return { error: "Team names are 2 to 60 characters." };
-    // shortcut: if registration then fails, the empty team stays behind; add a delete policy if that piles up
-    const { data, error } = await sb.from("teams").insert({ name: teamName }).select("id").single();
-    if (error) return { error: `Couldn't create the team: ${error.message}` };
-    teamId = data.id;
-  }
+  if (teamName !== undefined && (teamName.length < 2 || teamName.length > 60)) return { error: "Team names are 2 to 60 characters." };
   const { error } = await sb.rpc("register_entry", {
-    p_category: category, p_team: teamId, p_partner: form.get("partner")?.toString().trim() || null,
+    p_category: category, p_team: null, p_team_name: teamName ?? null, p_partner: form.get("partner")?.toString().trim() || null,
     p_dob: dateOrNull("dob"), p_partner_dob: dateOrNull("partner_dob"), p_roster: roster,
   });
-  if (error) return { error: error.message.includes("duplicate") ? "You're already registered in this category." : error.message };
+  if (error) {
+    if (!error.message.includes("duplicate")) return { error: error.message };
+    // one entry per player per category: a withdrawn entry still holds that slot
+    const { data: auth } = await sb.auth.getUser();
+    const { data: old } = await sb.from("entries").select("status").eq("category_id", category).eq("user_id", auth.user?.id ?? "").maybeSingle();
+    return { error: old?.status === "withdrawn"
+      ? "You withdrew from this category earlier. Ask the organiser to put you back in."
+      : "You're already registered in this category." };
+  }
   return done(form.get("slug"), "You're in.");
 }
 
@@ -150,18 +146,25 @@ export async function addEntries(_: ActionState, form: FormData): Promise<Action
   return done(form.get("slug"), `Added ${rows.length} ${rows.length === 1 ? "entry" : "entries"}.`);
 }
 
-export async function updateEntry(form: FormData) {
+/** Organiser edits to an entry. RLS turns a stranger's update into "0 rows", so count rows instead of trusting no-error. */
+export async function updateEntry(_: ActionState, form: FormData): Promise<ActionState> {
   const sb = await supabaseServer();
   const id = String(form.get("entry"));
   const op = String(form.get("op"));
-  if (op === "paid") await sb.from("entries").update({ status: "confirmed", payment_status: "paid" }).eq("id", id);
-  if (op === "remove") await sb.from("entries").delete().eq("id", id);
-  if (op === "seed") {
-    const seed = form.get("seed")?.toString().trim();
-    const n = seed ? whole(seed) : null;
-    if (n === null || (n >= 1 && n <= 999)) await sb.from("entries").update({ seed: n }).eq("id", id);
+  let res;
+  if (op === "paid") res = await sb.from("entries").update({ status: "confirmed", payment_status: "paid" }).eq("id", id).select("id");
+  else if (op === "remove") res = await sb.from("entries").delete().eq("id", id).select("id");
+  else if (op === "seed") {
+    const raw = form.get("seed")?.toString().trim();
+    const seed = raw ? whole(raw) : null;
+    if (seed !== null && !(seed >= 1 && seed <= 999)) return { error: "Seeds are 1 to 999." };
+    res = await sb.from("entries").update({ seed }).eq("id", id).select("id");
+  } else return { error: "Unknown change." };
+  if (res.error) return { error: res.error.message };
+  if (!res.data?.length) {
+    return { error: op === "remove" ? "Couldn't remove: only organisers can, and only before the draw." : "Only this event's organisers can change entries." };
   }
-  revalidatePath(`/t/${String(form.get("slug"))}`);
+  return done(form.get("slug"), op === "paid" ? "Marked paid." : op === "remove" ? "Removed." : "Seed saved.");
 }
 
 function build(format: Format, ids: string[], groupCount: number, club: (id: string) => string): Match[] {
@@ -212,7 +215,8 @@ export async function drawFixtures(_: ActionState, form: FormData): Promise<Acti
   const { error } = await sb.rpc("save_fixtures", { p_category: category, p_matches: fixtures });
   if (error) return { error: error.message };
   const schedErr = await scheduleEvent(sb, c.event_id);
-  return done(form.get("slug"), schedErr ? `Fixtures drawn. ${schedErr}` : "Fixtures drawn and scheduled.");
+  const told = await notify(sb, c.event_id, "fixtures_released", { category, round: `draw-${Date.now()}` });
+  return done(form.get("slug"), `${schedErr ? `Fixtures drawn. ${schedErr}` : "Fixtures drawn and scheduled."} ${told}`);
 }
 
 /** Groups + knockout: once every group match is done, the top two of each group go into a bracket. */
@@ -239,25 +243,188 @@ export async function drawKnockout(_: ActionState, form: FormData): Promise<Acti
   const { error } = await sb.rpc("save_fixtures", { p_category: category, p_matches: knockout(qualifiers(tables, 2)) });
   if (error) return { error: error.message };
   const schedErr = await scheduleEvent(sb, c.event_id);
-  return done(form.get("slug"), schedErr ? `Knockout drawn. ${schedErr}` : "Knockout drawn and scheduled.");
+  const told = await notify(sb, c.event_id, "fixtures_released", { category, round: `knockout-${Date.now()}` });
+  return done(form.get("slug"), `${schedErr ? `Knockout drawn. ${schedErr}` : "Knockout drawn and scheduled."} ${told}`);
 }
 
 export async function reschedule(_: ActionState, form: FormData): Promise<ActionState> {
   const sb = await supabaseServer();
   const err = await scheduleEvent(sb, String(form.get("event")));
-  return err ? { error: err } : done(form.get("slug"), "Order of play updated.");
+  if (err) return { error: err };
+  const told = await notify(sb, String(form.get("event")), "schedule_update", { round: `replan-${Date.now()}` });
+  return done(form.get("slug"), `Order of play updated. ${told}`);
 }
 
-export async function checkIn(form: FormData) {
+export async function checkIn(_: ActionState, form: FormData): Promise<ActionState> {
   const sb = await supabaseServer();
-  await sb.rpc("check_in", {
-    p_entry: String(form.get("entry")), p_present: form.get("present") === "1", p_id_checked: form.get("id") === "1",
+  const present = form.get("present") === "1";
+  const { error } = await sb.rpc("check_in", {
+    p_entry: String(form.get("entry")), p_present: present, p_id_checked: form.get("id") === "1",
   });
+  if (error) return { error: error.message };
   revalidatePath(`/t/${String(form.get("slug"))}/desk`);
+  return { ok: present ? "Checked in." : "Check-in undone." };
 }
 
-export async function awardWalkover(form: FormData) {
+export async function awardWalkover(_: ActionState, form: FormData): Promise<ActionState> {
   const sb = await supabaseServer();
-  await sb.rpc("award_walkover", { p_match: String(form.get("match")), p_winner: String(form.get("winner")) });
+  const { error } = await sb.rpc("award_walkover", { p_match: String(form.get("match")), p_winner: String(form.get("winner")) });
+  if (error) return { error: error.message };
   revalidatePath(`/t/${String(form.get("slug"))}`, "layout");
+  return { ok: "Walkover recorded." };
+}
+
+/** Risk 5: revoke a referee link and issue a fresh one for the same court. */
+export async function rotateRefereeLink(_: ActionState, form: FormData): Promise<ActionState> {
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("rotate_referee_link", { p_token: String(form.get("token")) });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), "New link ready. The old one no longer works.");
+}
+
+// ---------- P0.2: edit an event after publishing ----------
+const istDate = (date: string, time: string) => (/^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{2}:\d{2}$/.test(time) ? new Date(`${date}T${time}:00+05:30`) : null);
+
+export async function updateEvent(_: ActionState, form: FormData): Promise<ActionState> {
+  const get = (k: string, max = 200) => str(form.get(k), max);
+  const title = get("title", 120);
+  if (title.length < 4) return { error: "The name must be at least 4 characters." };
+  const venue = get("venue", 120);
+  if (!venue) return { error: "Add the venue." };
+  const starts = istDate(get("start_date"), get("start_time"));
+  const closes = istDate(get("close_date"), get("close_time"));
+  if (!starts || !closes) return { error: "Check the dates and times." };
+  if (closes > starts) return { error: "Entries must close before the first match." };
+  const matchMinutes = whole(form.get("match_minutes"));
+  const breakMinutes = whole(form.get("break_minutes") || 0);
+  if (!(matchMinutes >= 5 && matchMinutes <= 240)) return { error: "A match takes between 5 and 240 minutes." };
+  if (!(breakMinutes >= 0 && breakMinutes <= 60)) return { error: "Breaks are 0 to 60 minutes." };
+  const rules = String(form.get("rules") ?? "").split("\n").map((r) => r.trim()).filter(Boolean);
+  if (rules.length > 30) return { error: "Keep it to 30 rules or fewer." };
+
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("update_event", {
+    p_event: String(form.get("event")),
+    p: {
+      title, venue, area: get("area", 120), prize: get("prize"), rules,
+      starts_at: starts.toISOString(), reg_closes_at: closes.toISOString(),
+      match_minutes: matchMinutes, break_minutes: breakMinutes, age_check: form.get("age_check") === "desk" ? "desk" : "self",
+    },
+  });
+  if (error) return { error: error.message.includes("check constraint") ? "Entries must close before the first match." : error.message };
+  return done(form.get("slug"), "Saved. If you moved the start time, use Re-plan from now on the order of play.");
+}
+
+export async function addCourt(_: ActionState, form: FormData): Promise<ActionState> {
+  const name = str(form.get("name"), 40);
+  if (!name) return { error: "Name the court." };
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("add_court", { p_event: String(form.get("event")), p_name: name });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), `${name} added, with its own referee link.`);
+}
+
+export async function renameCourt(_: ActionState, form: FormData): Promise<ActionState> {
+  const name = str(form.get("name"), 40);
+  if (!name) return { error: "Name the court." };
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("rename_court", { p_court: String(form.get("court")), p_name: name });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), "Renamed.");
+}
+
+export async function setCategoryStatus(_: ActionState, form: FormData): Promise<ActionState> {
+  const status = String(form.get("status"));
+  if (!["open", "locked", "cancelled"].includes(status)) return { error: "Unknown change." };
+  if (status === "cancelled" && form.get("confirm") !== "yes") return { error: "Tick the box to confirm." };
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("set_category_status", { p_category: String(form.get("category")), p_status: status });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), status === "locked" ? "Entries closed." : status === "open" ? "Entries reopened." : "Category cancelled.");
+}
+
+export async function closeAllEntries(_: ActionState, form: FormData): Promise<ActionState> {
+  const sb = await supabaseServer();
+  const { data, error } = await sb.rpc("close_all_entries", { p_event: String(form.get("event")) });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), data ? `Entries closed in ${data} ${data === 1 ? "category" : "categories"}.` : "Entries were already closed.");
+}
+
+export async function cancelEvent(_: ActionState, form: FormData): Promise<ActionState> {
+  if (form.get("confirm") !== "yes") return { error: "Tick the box to confirm." };
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("cancel_event", { p_event: String(form.get("event")) });
+  if (error) return { error: error.message };
+  revalidatePath("/tournaments");
+  revalidatePath("/organise");
+  const told = await notify(sb, String(form.get("event")), "event_cancelled", { round: "cancel" });
+  return done(form.get("slug"), `Tournament cancelled. ${told}`);
+}
+
+// ---------- P0.5: staff ----------
+export async function createStaffInvite(_: ActionState, form: FormData): Promise<ActionState> {
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("create_staff_invite", { p_event: String(form.get("event")), p_note: str(form.get("note"), 80) });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), "Invite link ready below. It works once, for 7 days.");
+}
+
+export async function revokeStaffInvite(_: ActionState, form: FormData): Promise<ActionState> {
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("revoke_staff_invite", { p_token: String(form.get("token")) });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), "Invite withdrawn.");
+}
+
+export async function removeOfficial(_: ActionState, form: FormData): Promise<ActionState> {
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("remove_official", { p_event: String(form.get("event")), p_user: String(form.get("user")) });
+  if (error) return { error: error.message };
+  revalidatePath("/organise");
+  return done(form.get("slug"), "Removed. Their access has ended.");
+}
+
+// ---------- P0.7: players withdraw before the draw ----------
+export async function withdrawEntry(_: ActionState, form: FormData): Promise<ActionState> {
+  if (form.get("confirm") !== "yes") return { error: "Tick the box to confirm." };
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("withdraw_entry", { p_entry: String(form.get("entry")) });
+  if (error) return { error: error.message };
+  revalidatePath("/tournaments");
+  return done(form.get("slug"), "You've withdrawn. Your spot is free for someone else.");
+}
+
+// ---------- P0.4: call a match from the desk ----------
+export async function callMatch(_: ActionState, form: FormData): Promise<ActionState> {
+  const sb = await supabaseServer();
+  // one call per match every 10 minutes, so a double tap doesn't email players twice
+  const told = await notify(sb, String(form.get("event")), "match_called", {
+    match: String(form.get("match")), round: `call-${Math.floor(Date.now() / 600_000)}`,
+  });
+  return { ok: told };
+}
+
+// ---------- P1.1: import entries from a CSV ----------
+export async function importEntries(_: ActionState, form: FormData): Promise<ActionState> {
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Choose a CSV file." };
+  if (file.size > 200_000) return { error: "That file is too big. Keep it under 200 KB (about 128 entries)." };
+  const { rows, errors } = readEntriesCsv(await file.text());
+  if (errors.length) return { error: `Nothing imported. ${errors.slice(0, 4).join(" ")}${errors.length > 4 ? ` And ${errors.length - 4} more.` : ""}` };
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("add_entries", { p_category: String(form.get("category")), p_rows: rows });
+  if (error) return { error: `Nothing imported. ${error.message}.` };
+  return done(form.get("slug"), `Imported ${rows.length} ${rows.length === 1 ? "entry" : "entries"}.`);
+}
+
+// ---------- P1.2: move one match by hand ----------
+export async function moveMatch(_: ActionState, form: FormData): Promise<ActionState> {
+  const at = istDate(str(form.get("date")), str(form.get("time")));
+  const court = String(form.get("court") ?? "");
+  if (!at) return { error: "Pick a date and time." };
+  if (!court) return { error: "Pick a court." };
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("move_match", { p_match: String(form.get("match")), p_court: court, p_at: at.toISOString() });
+  if (error) return { error: `${error.message}. Pick another court or time.` };
+  return done(form.get("slug"), "Moved.");
 }

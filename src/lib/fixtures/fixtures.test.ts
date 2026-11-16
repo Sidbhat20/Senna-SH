@@ -318,3 +318,189 @@ describe("safeNext (login redirects)", () => {
     }
   });
 });
+
+import { vi } from "vitest";
+import { debounce, REFRESH_DEBOUNCE_MS } from "../debounce";
+
+describe("live refresh debounce", () => {
+  it("collapses a burst of score changes into one refresh", () => {
+    vi.useFakeTimers();
+    const fn = vi.fn();
+    const run = debounce(fn, REFRESH_DEBOUNCE_MS);
+    for (let i = 0; i < 25; i++) {
+      run();
+      vi.advanceTimersByTime(50); // a fast referee: a point every 50 ms
+    }
+    expect(fn).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
+    expect(fn).toHaveBeenCalledTimes(1);
+    run();
+    run.cancel();
+    vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
+    expect(fn).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+});
+
+import { expectTypeOf } from "vitest";
+import type { ScoringQueue } from "../data";
+
+describe("referee queue stays slim", () => {
+  it("carries only the event's id, slug and title, not a full event with every past match", () => {
+    expectTypeOf<keyof ScoringQueue["event"]>().toEqualTypeOf<"id" | "slug" | "title">();
+  });
+});
+
+import { organiserOrder } from "../organise";
+
+describe("organiser home order", () => {
+  it("lists events still to run first (soonest first), then finished ones (newest first)", () => {
+    const ev = (id: string, status: "draft" | "open" | "live" | "completed" | "cancelled", startsAt: string) => ({ id, status, startsAt });
+    const { active, past } = organiserOrder([
+      ev("old-final", "completed", "2026-10-01T04:00:00Z"),
+      ev("next-week", "open", "2026-12-20T04:00:00Z"),
+      ev("today", "live", "2026-11-16T04:00:00Z"),
+      ev("idea", "draft", "2027-01-05T04:00:00Z"),
+      ev("rained-off", "cancelled", "2026-11-01T04:00:00Z"),
+    ]);
+    expect(active.map((e) => e.id)).toEqual(["today", "next-week", "idea"]);
+    expect(past.map((e) => e.id)).toEqual(["rained-off", "old-final"]);
+  });
+});
+
+import { csvCell, entriesCsv, istStamp, orderOfPlayCsv, toCsv } from "../exports";
+import type { EventDetail } from "../data";
+
+describe("CSV exports", () => {
+  it("escapes commas, quotes and new lines, and neutralises spreadsheet formulas", () => {
+    expect(csvCell('Rao, Arjun')).toBe('"Rao, Arjun"');
+    expect(csvCell('The "Smashers"')).toBe('"The ""Smashers"""');
+    expect(csvCell("line1\nline2")).toBe('"line1\nline2"');
+    expect(csvCell("=HYPERLINK(\"http://evil\")")).toBe('"\'=HYPERLINK(""http://evil"")"');
+    expect(csvCell("+91 98765")).toBe("'+91 98765");
+    expect(csvCell(-3)).toBe("-3"); // numbers are numbers, not formulas
+    expect(csvCell(null)).toBe("");
+    expect(toCsv([["a", "b"]])).toBe("﻿a,b\r\n");
+  });
+
+  it("writes times in Bangalore time", () => {
+    expect(istStamp("2026-12-20T03:00:00Z")).toBe("2026-12-20 08:30");
+  });
+
+  const ev = {
+    slug: "test-open",
+    courts: [{ id: "c1", name: "Court 1" }, { id: "c2", name: "Court 2" }],
+    categories: [{
+      name: "Men's Singles", format: "knockout",
+      entryRows: [
+        { id: "e1", name: "Arjun Rao", club: "Smash", seed: 1, status: "confirmed", paymentStatus: "paid", checkedIn: true, idChecked: false, roster: [] },
+        { id: "e2", name: "Walk-in", club: "", seed: null, status: "confirmed", paymentStatus: "not_required", checkedIn: false, idChecked: false, roster: [] },
+      ],
+      matches: [
+        { id: "m1", key: "k1", stage: "knockout", round: 1, slot: 0, a: "Arjun Rao", b: "Walk-in", status: "scheduled", games: [], courtId: "c2", court: "Court 2", at: "2026-12-20T03:30:00Z" },
+        { id: "m2", key: "k2", stage: "knockout", round: 1, slot: 1, a: "Bye", b: "Kavya", status: "done", games: [], courtId: null, walkover: true },
+        { id: "m3", key: "k3", stage: "knockout", round: 2, slot: 0, a: "Ravi", b: "Meera", status: "scheduled", games: [], courtId: "c1", court: "Court 1", at: "2026-12-20T04:00:00Z" },
+      ],
+    }],
+  } as unknown as EventDetail;
+
+  it("entries include payment and contacts for managers", () => {
+    const csv = entriesCsv(ev, new Map([["e1", { email: "arjun@example.com", phone: "+919000000000" }]]));
+    const lines = csv.replace("﻿", "").trim().split("\r\n");
+    expect(lines[0]).toBe("Category,Entry,Club,Seed,Status,Payment,Checked in,ID seen,Players,Email,Phone");
+    expect(lines[1]).toBe("Men's Singles,Arjun Rao,Smash,1,Confirmed,Paid,Yes,No,,arjun@example.com,'+919000000000");
+    expect(lines[2]).toBe("Men's Singles,Walk-in,,,Confirmed,Free,No,No,,,");
+  });
+
+  it("order of play is by court then time, without byes", () => {
+    const lines = orderOfPlayCsv(ev).replace("﻿", "").trim().split("\r\n");
+    expect(lines.slice(1)).toEqual([
+      "Court 1,2026-12-20 09:30,Men's Singles,Final,Ravi,Meera,Scheduled",
+      "Court 2,2026-12-20 09:00,Men's Singles,Semi-finals,Arjun Rao,Walk-in,Scheduled",
+    ]);
+  });
+});
+
+import { deliver, render, whatsappShare, type Queued } from "../notify";
+import { EMAIL_NOT_SET_UP } from "../email";
+
+describe("notifications", () => {
+  const payload = { event: "Whitefield Open", slug: "whitefield-open-ab12", venue: "Smash Arena", category: "Men's Singles",
+    entry: "Arjun Rao", court: "Court 2", at: "2026-12-20T03:30:00Z", opponent: "Rohan Shetty" };
+  const rows: Queued[] = ["a@x.in", "b@x.in", "c@x.in"].map((email, i) => ({ id: `n${i}`, email, kind: "fixtures_released", payload }));
+
+  it("sends one email per queued player and reports failures without losing them", async () => {
+    const outbox: string[] = [];
+    const ok = await deliver(rows, async (e) => (outbox.push(e.to), { ok: true }));
+    expect(outbox).toEqual(["a@x.in", "b@x.in", "c@x.in"]);
+    expect(ok).toEqual({ sent: ["n0", "n1", "n2"], failed: [], error: null });
+    const half = await deliver(rows, async (e) => (e.to === "b@x.in" ? { ok: false, error: "bounced" } : { ok: true }));
+    expect(half).toEqual({ sent: ["n0", "n2"], failed: ["n1"], error: "bounced" });
+    const off = await deliver(rows, async () => ({ ok: false, error: EMAIL_NOT_SET_UP }));
+    expect(off.failed).toHaveLength(3);
+  });
+
+  it("writes a plain email with the court, Bangalore time, opponent and the public link", () => {
+    const e = render("fixtures_released", payload, "https://sportshunt.in");
+    expect(e.subject).toBe("Men's Singles draw is out: Whitefield Open");
+    expect(e.text).toContain("Your first match: Court 2, Sun, 20 Dec, 9:00 am, against Rohan Shetty.");
+    expect(e.text).toContain("Tournament page: https://sportshunt.in/t/whitefield-open-ab12");
+    expect(render("event_cancelled", payload, "https://x.in").text).toContain("has been cancelled");
+  });
+
+  it("shares the public tournament page on WhatsApp", () => {
+    const url = whatsappShare({ title: "Whitefield Open", slug: "whitefield-open-ab12", venue: "Smash Arena", startsAt: payload.at }, "https://sportshunt.in");
+    expect(url.startsWith("https://wa.me/?text=")).toBe(true);
+    expect(decodeURIComponent(url.split("text=")[1])).toContain("https://sportshunt.in/t/whitefield-open-ab12");
+  });
+});
+
+import { IMPORT_TEMPLATE, parseCsv, readEntriesCsv } from "../csv-import";
+
+describe("CSV import", () => {
+  it("parses quotes, commas and line breaks inside quotes, and Excel's BOM", () => {
+    expect(parseCsv('﻿name,club\r\n"Rao, Arjun","The ""Smash"" Club"\r\n"Two\nLines",\r\n\r\n')).toEqual([
+      ["name", "club"], ["Rao, Arjun", 'The "Smash" Club'], ["Two\nLines", ""],
+    ]);
+  });
+  it("reads the template, a header in any order, or no header", () => {
+    expect(readEntriesCsv(IMPORT_TEMPLATE).rows).toEqual([
+      { name: "Arjun Rao", club: "Smash Academy", seed: 1 }, { name: "Kavya Menon", club: "", seed: 2 }, { name: "Rohan Shetty", club: "Shuttle Club", seed: null },
+    ]);
+    expect(readEntriesCsv("Seed,Name\n3,Meera").rows).toEqual([{ name: "Meera", club: "", seed: 3 }]);
+    expect(readEntriesCsv("Ravi,Hawks,4\nDivya").rows).toEqual([{ name: "Ravi", club: "Hawks", seed: 4 }, { name: "Divya", club: "", seed: null }]);
+  });
+  it("lists every bad row and imports nothing", () => {
+    const r = readEntriesCsv("name,club,seed\nAsha,,1\n,Hawks,2\nBala,,zero\nChitra,,1000");
+    expect(r.rows).toEqual([]);
+    expect(r.errors).toEqual([
+      "Row 3: the name is missing.",
+      'Row 4: the seed "zero" isn\'t a number from 1 to 999.',
+      'Row 5: the seed "1000" isn\'t a number from 1 to 999.',
+    ]);
+    expect(readEntriesCsv("name\n" + "x\n".repeat(129)).errors[0]).toMatch(/at most 128/);
+    expect(readEntriesCsv("").errors).toEqual(["The file is empty."]);
+  });
+});
+
+import { findClash, type Placed } from "./clash";
+
+describe("moving one match", () => {
+  const at = (hhmm: string) => `2030-03-01T${hhmm}:00+05:30`;
+  const ms: Placed[] = [
+    { id: "m1", court: "A", at: at("09:30"), a: "Arjun", b: "Kavya" },
+    { id: "m2", court: "B", at: at("09:30"), a: "Rohan", b: "Meera" },
+    { id: "m3", court: "B", at: at("10:05"), a: "Arjun", b: "Divya" },
+    { id: "w", court: "C", at: at("09:30"), a: "Bye", b: "Ravi", walkover: true },
+  ];
+  it("refuses a busy court", () => {
+    expect(findClash(ms, { id: "m2", court: "A", at: at("09:50") }, 35)).toEqual({ kind: "court", with: ms[0] });
+  });
+  it("refuses a player who is playing elsewhere", () => {
+    expect(findClash(ms, { id: "m3", court: "C", at: at("09:45") }, 35)?.kind).toBe("player");
+  });
+  it("allows back-to-back slots and free courts, and ignores walkovers", () => {
+    expect(findClash(ms, { id: "m2", court: "A", at: at("10:05") }, 35)).toBeNull();
+    expect(findClash(ms, { id: "m2", court: "C", at: at("09:30") }, 35)).toBeNull();
+  });
+});

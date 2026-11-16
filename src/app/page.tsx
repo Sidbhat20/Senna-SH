@@ -11,9 +11,8 @@ const STEPS = [
 ];
 
 export default async function Home() {
-  const [all, featured] = await Promise.all([listEvents(), featuredEvent()]);
+  const [{ events: open }, featured] = await Promise.all([listEvents({ status: "open" }), featuredEvent()]);
   const bracket = featured?.categories.find((c) => c.matches.some((m) => m.stage === "knockout"));
-  const open = all.filter((t) => t.status === "open");
 
   return (
     <>
@@ -31,7 +30,7 @@ export default async function Home() {
               <Link href="/tournaments" className="rounded-md bg-turf px-5 py-3 font-semibold text-white hover:bg-turf-dark">
                 Find a tournament
               </Link>
-              <Link href="/organise/new" className="rounded-md border border-ink px-5 py-3 font-semibold hover:bg-ink hover:text-chalk">
+              <Link href="/organise" className="rounded-md border border-ink px-5 py-3 font-semibold hover:bg-ink hover:text-chalk">
                 Organise one
               </Link>
             </div>

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { awardWalkover, checkIn } from "@/app/actions";
+import { awardWalkover, callMatch, checkIn } from "@/app/actions";
+import { ActionForm } from "@/components/ActionForm";
 import { LiveRefresh } from "@/components/LiveRefresh";
 import { ageLimitText, time } from "@/components/ui";
 import { getEvent } from "@/lib/data";
@@ -12,10 +13,6 @@ export const metadata: Metadata = { title: "Desk", robots: { index: false } };
 type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ q?: string }> };
 
 const SOON_MIN = 45; // matches starting within this many minutes are "due"
-
-function Hidden({ values }: { values: Record<string, string> }) {
-  return <>{Object.entries(values).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}</>;
-}
 
 export default async function Desk({ params, searchParams }: Props) {
   const ev = await getEvent((await params).slug);
@@ -63,13 +60,15 @@ export default async function Desk({ params, searchParams }: Props) {
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <ActionForm action={callMatch} values={{ event: ev.id, match: m.id, slug: ev.slug }} showOk>
+                    <button className="rounded-lg bg-ink px-3 py-1.5 text-[14px] font-semibold text-chalk">Email both players</button>
+                  </ActionForm>
                   {(["a", "b"] as const).map((s) => (
-                    <form key={s} action={awardWalkover}>
-                      <Hidden values={{ match: m.id, winner: s, slug: ev.slug }} />
+                    <ActionForm key={s} action={awardWalkover} values={{ match: m.id, winner: s, slug: ev.slug }}>
                       <button className="rounded-lg border border-ink px-3 py-1.5 text-[14px] font-semibold">
                         Walkover to {(s === "a" ? m.a : m.b)!.split(" / ")[0]}
                       </button>
-                    </form>
+                    </ActionForm>
                   ))}
                 </div>
               </li>
@@ -100,25 +99,22 @@ export default async function Desk({ params, searchParams }: Props) {
             {e.checkedIn ? (
               <>
                 <span className="text-[15px] font-semibold text-turf-dark">Checked in{e.idChecked && ", ID seen"}</span>
-                <form action={checkIn}>
-                  <Hidden values={{ entry: e.id, present: "0", slug: ev.slug }} />
+                <ActionForm action={checkIn} values={{ entry: e.id, present: "0", slug: ev.slug }}>
                   <button className="rounded-lg px-3 py-1.5 text-[14px] text-muted hover:bg-line/50">Undo</button>
-                </form>
+                </ActionForm>
               </>
             ) : (
               <div className="flex gap-2">
                 {e.aged && ev.ageCheck === "desk" && (
-                  <form action={checkIn}>
-                    <Hidden values={{ entry: e.id, present: "1", id: "1", slug: ev.slug }} />
+                  <ActionForm action={checkIn} values={{ entry: e.id, present: "1", id: "1", slug: ev.slug }}>
                     <button className="h-11 rounded-lg bg-turf px-4 font-semibold text-white">Check in + ID seen</button>
-                  </form>
+                  </ActionForm>
                 )}
-                <form action={checkIn}>
-                  <Hidden values={{ entry: e.id, present: "1", slug: ev.slug }} />
+                <ActionForm action={checkIn} values={{ entry: e.id, present: "1", slug: ev.slug }}>
                   <button className={`h-11 rounded-lg px-4 font-semibold ${e.aged && ev.ageCheck === "desk" ? "border border-ink" : "bg-turf text-white"}`}>
                     Check in
                   </button>
-                </form>
+                </ActionForm>
               </div>
             )}
           </li>

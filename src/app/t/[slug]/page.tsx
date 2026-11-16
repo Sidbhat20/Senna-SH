@@ -2,16 +2,19 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { updateEntry } from "@/app/actions";
+import { moveMatch, rotateRefereeLink, updateEntry, withdrawEntry } from "@/app/actions";
 import { Bracket } from "@/components/Bracket";
+import { ActionForm } from "@/components/ActionForm";
 import { LiveRefresh } from "@/components/LiveRefresh";
 import { PosterUpload } from "@/components/PosterUpload";
 import { Standings } from "@/components/Standings";
 import { ageLimitText, date, dateTime, feeRange, MatchRow, perEntry, scoringText, sportName, StatusPill, time } from "@/components/ui";
 import { FORMATS, getEvent, myEntries, refereeLinks, type CategoryDetail, type DbMatch, type EventDetail } from "@/lib/data";
 import { standings } from "@/lib/fixtures/standings";
+import { whatsappShare } from "@/lib/notify";
 import { BYE } from "@/lib/fixtures/types";
-import { AddEntriesForm, CopyLink, DrawButton, RegisterForm, RescheduleButton } from "./Panels";
+import { EditPanel, ist } from "./EditPanel";
+import { AddEntriesForm, CopyLink, DrawButton, RegisterForm, RescheduleButton, ImportEntriesForm } from "./Panels";
 
 type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ c?: string; view?: string }> };
 
@@ -61,12 +64,23 @@ async function OrderOfPlay({ ev, href }: { ev: EventDetail; href: (m: DbMatch) =
           {links.length > 0 && (
             <>
               <h3 className="mt-6 font-display text-xl font-semibold">Referee links</h3>
-              <p className="text-[15px] text-muted">Send a court&apos;s link to its referee. They log in once and can score only that court.</p>
+              <p className="text-[15px] text-muted">Send a court&apos;s link to its referee. They log in once and can score only that court. A new link stops the old one from working; referees who already joined keep scoring.</p>
               <div className="mt-3 space-y-2">
                 {[...links].sort((a, b) => (a.court_id ? 1 : 0) - (b.court_id ? 1 : 0) || (ev.courts.findIndex((c) => c.id === a.court_id) - ev.courts.findIndex((c) => c.id === b.court_id)))
-                  .map((l) => (
-                    <CopyLink key={l.token} path={`/ref/${l.token}`} label={l.court_id ? ev.courts.find((c) => c.id === l.court_id)?.name : "All courts"} />
-                  ))}
+                  .map((l) => {
+                    const expired = +new Date(l.expires_at) <= Date.now();
+                    return (
+                      <div key={l.token} className="space-y-1">
+                        <CopyLink path={`/ref/${l.token}`} label={l.court_id ? ev.courts.find((c) => c.id === l.court_id)?.name : "All courts"} />
+                        <ActionForm action={rotateRefereeLink} values={{ token: l.token, slug: ev.slug }} className="pl-26 text-[13px]" showOk>
+                          <span className={expired ? "font-semibold text-danger" : "text-muted"}>
+                            {expired ? "Expired" : "Works until"} {date(l.expires_at)}.
+                          </span>
+                          <button className="font-semibold underline underline-offset-2">New link</button>
+                        </ActionForm>
+                      </div>
+                    );
+                  })}
               </div>
             </>
           )}
@@ -87,6 +101,25 @@ async function OrderOfPlay({ ev, href }: { ev: EventDetail; href: (m: DbMatch) =
                     <li key={m.id} className="grid grid-cols-[3.75rem_1fr] gap-x-3">
                       <span className={`tabular pt-3 font-display text-lg font-semibold ${m.status === "done" ? "text-muted" : ""}`}>{time(m.at!)}</span>
                       <MatchRow m={{ ...m, court: undefined, at: undefined }} label={m.category} href={href(m)} />
+                      {ev.canManage && m.status === "scheduled" && (
+                        <details className="col-start-2 pb-3 text-[14px]">
+                          <summary className="cursor-pointer font-semibold text-muted hover:text-ink">Move</summary>
+                          <ActionForm action={moveMatch} values={{ match: m.id, slug: ev.slug }} className="mt-2 gap-y-2">
+                            <fieldset className="flex w-full flex-wrap gap-1.5">
+                              <legend className="sr-only">Court</legend>
+                              {ev.courts.map((c) => (
+                                <label key={c.id} className="cursor-pointer rounded-full border border-line px-2.5 py-1 has-[:checked]:border-ink has-[:checked]:bg-ink has-[:checked]:text-chalk">
+                                  <input type="radio" name="court" value={c.id} defaultChecked={c.id === m.courtId} className="sr-only" />
+                                  {c.name}
+                                </label>
+                              ))}
+                            </fieldset>
+                            <input type="date" name="date" defaultValue={ist(m.at!).date} aria-label="Date" className="rounded-lg border border-line px-2 py-1" />
+                            <input type="time" name="time" defaultValue={ist(m.at!).time} step={300} aria-label="Start time" className="rounded-lg border border-line px-2 py-1" />
+                            <button className="rounded-lg bg-ink px-3 py-1.5 font-semibold text-chalk disabled:opacity-60">Move</button>
+                          </ActionForm>
+                        </details>
+                      )}
                     </li>
                   ))}
                 </ol>
@@ -103,7 +136,8 @@ function ManageCategory({ ev, c }: { ev: EventDetail; c: CategoryDetail }) {
   const groupStageDone = c.format === "groups_knockout" && c.matches.some((m) => m.stage === "group")
     && c.matches.filter((m) => m.stage === "group").every((m) => m.status === "done")
     && !c.matches.some((m) => m.stage === "knockout");
-  if (c.status !== "open" && !groupStageDone) return null;
+  // Open categories take entries; locked ones (entries closed) still need seeding and the draw.
+  if (c.status !== "open" && c.status !== "locked" && !groupStageDone) return null;
   const confirmed = c.entryRows.filter((e) => e.status === "confirmed").length;
   const active = c.entryRows.filter((e) => e.status !== "withdrawn");
 
@@ -117,7 +151,16 @@ function ManageCategory({ ev, c }: { ev: EventDetail; c: CategoryDetail }) {
         </>
       ) : (
         <div className="mt-4 grid gap-8 lg:grid-cols-2">
-          <AddEntriesForm category={c.id} slug={ev.slug} team={c.entryType === "team"} />
+          {c.status === "open" ? (
+            <div>
+              <AddEntriesForm category={c.id} slug={ev.slug} team={c.entryType === "team"} />
+              <ImportEntriesForm category={c.id} slug={ev.slug} />
+            </div>
+          ) : (
+            <p className="text-[15px] text-muted">
+              Entries are closed for {c.name}. Reopen them from the Edit tab if you need to add someone before the draw.
+            </p>
+          )}
           <div>
             <h3 className="font-medium">Entries and seeds</h3>
             <p className="text-[14px] text-muted">Type a seed and press Enter. Seeds 1, 2, 3… are kept apart in the draw; unseeded entries follow in the order they joined.</p>
@@ -126,33 +169,24 @@ function ManageCategory({ ev, c }: { ev: EventDetail; c: CategoryDetail }) {
             ) : (
               <ul className="mt-2 max-h-80 divide-y divide-line overflow-y-auto pr-1">
                 {active.map((e) => (
-                  <li key={e.id} className="flex items-center gap-2 py-1.5 text-[15px]">
-                    <form action={updateEntry} className="flex items-center">
-                      <input type="hidden" name="entry" value={e.id} />
-                      <input type="hidden" name="slug" value={ev.slug} />
-                      <input type="hidden" name="op" value="seed" />
+                  <li key={e.id} className="flex flex-wrap items-center gap-2 py-1.5 text-[15px]">
+                    <ActionForm action={updateEntry} values={{ entry: e.id, slug: ev.slug, op: "seed" }} className="shrink-0">
                       <input name="seed" defaultValue={e.seed ?? ""} inputMode="numeric" aria-label={`Seed for ${e.name}`} placeholder="–"
                         className="tabular w-10 rounded-md border border-line bg-white px-1.5 py-1 text-center" />
                       <button className="sr-only">Save seed</button>
-                    </form>
+                    </ActionForm>
                     <span className="min-w-0 flex-1 truncate">
                       {e.name}
                       {e.club && <span className="text-muted">, {e.club}</span>}
                     </span>
                     {e.status === "pending" && (
-                      <form action={updateEntry}>
-                        <input type="hidden" name="entry" value={e.id} />
-                        <input type="hidden" name="slug" value={ev.slug} />
-                        <input type="hidden" name="op" value="paid" />
+                      <ActionForm action={updateEntry} values={{ entry: e.id, slug: ev.slug, op: "paid" }}>
                         <button className="rounded-md border border-ink px-2 py-0.5 text-[14px] font-semibold">Mark paid</button>
-                      </form>
+                      </ActionForm>
                     )}
-                    <form action={updateEntry}>
-                      <input type="hidden" name="entry" value={e.id} />
-                      <input type="hidden" name="slug" value={ev.slug} />
-                      <input type="hidden" name="op" value="remove" />
+                    <ActionForm action={updateEntry} values={{ entry: e.id, slug: ev.slug, op: "remove" }}>
                       <button className="rounded-md px-2 py-0.5 text-[14px] text-danger hover:bg-danger/10" aria-label={`Remove ${e.name}`}>Remove</button>
-                    </form>
+                    </ActionForm>
                   </li>
                 ))}
               </ul>
@@ -251,6 +285,8 @@ export default async function EventPage({ params, searchParams }: Props) {
   const { c: catId, view } = await searchParams;
   const me = await myEntries(ev);
   const schedule = view === "schedule";
+  const editing = view === "edit" && ev.canManage;
+  const onCategory = !schedule && !editing;
   const c = ev.categories.find((x) => x.id === catId) ?? ev.categories[0];
   const href = (m: DbMatch) => (ev.canManage && scorable(m) ? `/referee/match/${m.id}` : undefined);
   const hasTimes = ev.categories.some((x) => x.matches.some((m) => m.at));
@@ -287,6 +323,12 @@ export default async function EventPage({ params, searchParams }: Props) {
               </div>
             ))}
           </dl>
+          {ev.status !== "draft" && ev.status !== "cancelled" && (
+            <a href={whatsappShare(ev)} target="_blank" rel="noopener noreferrer"
+              className="mt-5 inline-flex items-center gap-2 rounded-lg border border-ink bg-white px-4 py-2 text-[15px] font-semibold hover:bg-line/40 print:hidden">
+              Share on WhatsApp
+            </a>
+          )}
           {ev.canManage && !ev.posterUrl && <div className="mt-6"><PosterUpload eventId={ev.id} hasPoster={false} /></div>}
         </div>
         {ev.posterUrl && (
@@ -300,6 +342,12 @@ export default async function EventPage({ params, searchParams }: Props) {
         )}
       </header>
 
+      {ev.status === "cancelled" && (
+        <p role="status" className="mt-8 rounded-xl border-2 border-danger bg-white px-5 py-4 font-semibold text-danger">
+          This tournament has been cancelled. Contact {ev.organiser} about entry fees.
+        </p>
+      )}
+
       {live.length > 0 && (
         <section className="mt-8 rounded-xl border-2 border-flood bg-white px-5 py-2" aria-label="Live now">
           <div className="divide-y divide-line">
@@ -310,8 +358,8 @@ export default async function EventPage({ params, searchParams }: Props) {
 
       <nav aria-label="Categories" className="mt-8 flex flex-wrap gap-2">
         {ev.categories.map((x) => (
-          <Link key={x.id} href={`/t/${ev.slug}?c=${x.id}`} aria-current={!schedule && x.id === c?.id ? "page" : undefined}
-            className={tab(!schedule && x.id === c?.id)}>
+          <Link key={x.id} href={`/t/${ev.slug}?c=${x.id}`} aria-current={onCategory && x.id === c?.id ? "page" : undefined}
+            className={tab(onCategory && x.id === c?.id)}>
             {x.name} <span className="tabular opacity-70">{x.entries.length}/{x.maxEntries}</span>
           </Link>
         ))}
@@ -325,9 +373,16 @@ export default async function EventPage({ params, searchParams }: Props) {
             Desk
           </Link>
         )}
+        {ev.canManage && (
+          <Link href={`/t/${ev.slug}?view=edit`} aria-current={editing ? "page" : undefined} className={tab(editing)}>
+            Edit
+          </Link>
+        )}
       </nav>
 
-      {schedule ? (
+      {editing ? (
+        <div className="mt-8"><EditPanel ev={ev} /></div>
+      ) : schedule ? (
         <div className="mt-8"><OrderOfPlay ev={ev} href={href} /></div>
       ) : c ? (
         <>
@@ -336,6 +391,8 @@ export default async function EventPage({ params, searchParams }: Props) {
             {c.format === "groups_knockout" ? ` with ${c.groupCount} groups` : ""}. {perEntry(c)}.
             {scoringText(c) && ` ${scoringText(c)}.`}
             {ageLimitText(c) && ` ${ageLimitText(c)}.`}
+            {c.status === "locked" && " Entries are closed."}
+            {c.status === "cancelled" && " This category is cancelled."}
           </p>
           {ev.canManage && <div className="mt-6"><ManageCategory ev={ev} c={c} /></div>}
           <div className="mt-10 grid gap-12 lg:grid-cols-[1fr_18rem]">
@@ -354,6 +411,28 @@ export default async function EventPage({ params, searchParams }: Props) {
                           <p className="mb-2 text-[15px]">Send this to your players so they join the team:</p>
                           <CopyLink path={`/join/${mine.invite}`} />
                         </div>
+                      )}
+                      {mine.canWithdraw && (
+                        c.status === "open" ? (
+                          <ActionForm action={withdrawEntry} values={{ entry: mine.id, slug: ev.slug }} className="mt-4 border-t border-line pt-4">
+                            <div className="w-full space-y-2">
+                              <label className="flex items-start gap-2 text-[15px]">
+                                <input type="checkbox" name="confirm" value="yes" required className="mt-1" />
+                                <span>
+                                  I can&apos;t play. Free my spot in {c.name}.
+                                  {c.entryFee > 0 && " Refunds are up to the organiser."}
+                                </span>
+                              </label>
+                              <button className="h-10 rounded-lg px-3 text-[15px] font-semibold text-danger hover:bg-danger/10 disabled:opacity-60">
+                                Withdraw
+                              </button>
+                            </div>
+                          </ActionForm>
+                        ) : (
+                          <p className="mt-4 border-t border-line pt-4 text-[14px] text-muted">
+                            Entries are closed, so to pull out, tell the organiser ({ev.organiser}).
+                          </p>
+                        )
                       )}
                     </>
                   ) : (

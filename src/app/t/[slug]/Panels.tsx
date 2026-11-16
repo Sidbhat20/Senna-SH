@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
-import { addEntries, drawFixtures, drawKnockout, register, reschedule, type ActionState } from "@/app/actions";
+import { addEntries, drawFixtures, drawKnockout, importEntries, register, reschedule, type ActionState } from "@/app/actions";
+import { IMPORT_TEMPLATE } from "@/lib/csv-import";
 
 const btn = "h-12 rounded-lg px-5 font-semibold disabled:opacity-60";
 
@@ -140,6 +141,25 @@ export function RescheduleButton({ event, slug }: { event: string; slug: string 
       <button disabled={pending} className={`${btn} border border-ink`}>
         {pending ? "Updating…" : "Re-plan from now"}
       </button>
+      <Message state={state} />
+    </form>
+  );
+}
+
+export function ImportEntriesForm({ category, slug }: { category: string; slug: string }) {
+  const [state, action, pending] = useActionState(importEntries, undefined);
+  return (
+    <form action={action} className="mt-4 border-t border-line pt-4">
+      <Hidden values={{ category, slug }} />
+      <p className="font-medium">Or import a spreadsheet</p>
+      <p className="text-[14px] text-muted">A CSV with columns name, club and seed. Save from Excel or Google Sheets as CSV.</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <input type="file" name="file" accept=".csv,text/csv" required aria-label="CSV file of entries"
+          className="max-w-full text-[14px] file:mr-3 file:rounded-lg file:border file:border-ink file:bg-white file:px-3 file:py-1.5 file:font-semibold" />
+        <button disabled={pending} className={`${btn} border border-ink`}>{pending ? "Importing…" : "Import"}</button>
+        <a href={`data:text/csv;charset=utf-8,${encodeURIComponent(IMPORT_TEMPLATE)}`} download="entries-template.csv"
+          className="text-[14px] font-semibold underline underline-offset-2">Download template</a>
+      </div>
       <Message state={state} />
     </form>
   );

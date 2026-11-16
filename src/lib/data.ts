@@ -2,6 +2,7 @@
 import type { Played } from "./fixtures/advance";
 import { BYE, type StageKind } from "./fixtures/types";
 import type { EntryType, Format, Scoring, Sport } from "./sports";
+import { organiserOrder } from "./organise";
 import { supabaseServer } from "./supabase/server";
 
 export { FORMATS, SPORTS, type Format, type Sport } from "./sports";
@@ -47,7 +48,7 @@ export type EventSummary = {
 
 export type EntryRow = {
   id: string; name: string; club: string; seed: number | null; status: "pending" | "confirmed" | "withdrawn";
-  checkedIn: boolean; idChecked: boolean; roster: string[];
+  checkedIn: boolean; idChecked: boolean; roster: string[]; paymentStatus: string;
 };
 export type DbMatch = Played & {
   id: string;
@@ -105,11 +106,26 @@ function toEvent(r: EventRow): EventSummary {
   };
 }
 
-export async function listEvents(): Promise<EventSummary[]> {
+export const PAGE_SIZE = 20;
+export type ListFilter = { status?: Status; sport?: Sport; page?: number };
+
+/**
+ * Public list, one page at a time. Without a status filter it shows what's coming up or under way (soonest first);
+ * finished events appear under the "Finished" filter, newest first. Filtering happens in Postgres, not in the page.
+ */
+export async function listEvents(f: ListFilter = {}): Promise<{ events: EventSummary[]; more: boolean }> {
   const sb = await supabaseServer();
-  const { data, error } = await sb.from("events").select(EVENT_SELECT).neq("status", "draft").order("starts_at");
+  const page = Math.max(0, Math.trunc(f.page ?? 0));
+  const finished = f.status === "completed";
+  let q = sb.from("events").select(EVENT_SELECT);
+  q = f.status ? q.eq("status", f.status) : q.in("status", ["open", "locked", "live"]);
+  if (f.sport) q = q.eq("sport", f.sport);
+  const { data, error } = await q
+    .order("starts_at", { ascending: !finished })
+    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE); // one extra row tells us whether there's another page
   if (error) throw new Error(`Could not load tournaments: ${error.message}`);
-  return (data as EventRow[]).map(toEvent);
+  const rows = (data as EventRow[]).map(toEvent);
+  return { events: rows.slice(0, PAGE_SIZE), more: rows.length > PAGE_SIZE };
 }
 
 type MRow = {
@@ -128,7 +144,7 @@ export async function getEvent(slug: string): Promise<EventDetail | null> {
   const catIds = ev.categories.map((c) => c.id);
   const [entries, matches, courts, manage] = await Promise.all([
     catIds.length
-      ? sb.from("entry_names").select("id, category_id, name, club, seed, status, checked_in_at, id_checked, roster").in("category_id", catIds)
+      ? sb.from("entry_names").select("id, category_id, name, club, seed, status, checked_in_at, id_checked, roster, payment_status").in("category_id", catIds)
           .order("seed", { nullsFirst: false }).order("created_at")
       : Promise.resolve({ data: [], error: null }),
     sb.from("matches").select("*").eq("event_id", ev.id).order("scheduled_at", { nullsFirst: false }).order("round").order("slot"),
@@ -138,10 +154,10 @@ export async function getEvent(slug: string): Promise<EventDetail | null> {
   if (entries.error || matches.error || courts.error) throw new Error("Could not load this tournament");
 
   type ERow = { id: string; category_id: string; name: string; club: string; seed: number | null; status: EntryRow["status"];
-    checked_in_at: string | null; id_checked: boolean; roster: string[] };
+    checked_in_at: string | null; id_checked: boolean; roster: string[]; payment_status: string };
   const entryRows = (entries.data as ERow[]).map((e) => ({
     id: e.id, category_id: e.category_id, name: e.name, club: e.club, seed: e.seed, status: e.status,
-    checkedIn: !!e.checked_in_at, idChecked: e.id_checked, roster: e.roster ?? [],
+    checkedIn: !!e.checked_in_at, idChecked: e.id_checked, roster: e.roster ?? [], paymentStatus: e.payment_status,
   }));
   const name = new Map(entryRows.map((e) => [e.id, e.name]));
   const courtName = new Map((courts.data as Court[]).map((c) => [c.id, c.name]));
@@ -196,18 +212,19 @@ export async function getMatch(id: string) {
 export async function myEntries(ev: { categories: { id: string }[] }) {
   const sb = await supabaseServer();
   const { data: auth } = await sb.auth.getUser();
-  const byCategory = new Map<string, { status: string; invite: string | null }>();
+  const byCategory = new Map<string, { id: string; status: string; invite: string | null; canWithdraw: boolean }>();
   if (!auth.user) return { loggedIn: false as const, byCategory };
   const catIds = ev.categories.map((c) => c.id);
   const { data: teams } = await sb.from("team_members").select("team_id").eq("user_id", auth.user.id);
   const teamIds = (teams ?? []).map((t) => t.team_id);
   const { data: rows } = catIds.length
-    ? await sb.from("entries").select("category_id, status, team_id").in("category_id", catIds).neq("status", "withdrawn")
+    ? await sb.from("entries").select("id, category_id, status, team_id, user_id").in("category_id", catIds).neq("status", "withdrawn")
         .or(`user_id.eq.${auth.user.id}${teamIds.length ? `,team_id.in.(${teamIds.join(",")})` : ""}`)
     : { data: [] };
   for (const r of rows ?? []) {
     const invite = r.team_id ? ((await sb.rpc("my_team_invite", { p_team: r.team_id })).data as string | null) : null;
-    byCategory.set(r.category_id, { status: r.status, invite });
+    // players withdraw their own entry; for teams only the captain can (my_team_invite answers only for captains)
+    byCategory.set(r.category_id, { id: r.id, status: r.status, invite, canWithdraw: r.user_id === auth.user.id || invite !== null });
   }
   return { loggedIn: true as const, byCategory };
 }
@@ -215,31 +232,113 @@ export async function myEntries(ev: { categories: { id: string }[] }) {
 /** Referee links for an event; RLS returns nothing unless the viewer manages it. */
 export async function refereeLinks(eventId: string) {
   const sb = await supabaseServer();
-  const { data } = await sb.from("referee_links").select("token, court_id").eq("event_id", eventId);
-  return (data ?? []) as { token: string; court_id: string | null }[];
+  const { data } = await sb.from("referee_links").select("token, court_id, expires_at").eq("event_id", eventId).is("revoked_at", null);
+  return (data ?? []) as { token: string; court_id: string | null; expires_at: string }[];
 }
 
-/** Events the current user referees or runs, with the matches they can score next. */
-export async function myScoring() {
+/** One match on a referee's queue: just what the scoring list shows, never a whole event's history. */
+export type ScoringMatch = Played & Pick<DbMatch, "id" | "category" | "court" | "at" | "games">;
+export type ScoringQueue = { event: { id: string; slug: string; title: string }; court: string | null; matches: ScoringMatch[] };
+
+const SCORING_LIMIT = 200;
+
+/**
+ * Matches the current user can score next, grouped by event. Slim on purpose: one query for unfinished matches with
+ * both sides known (finished and past matches are never fetched), then names for just those rows. No getEvent() calls.
+ */
+export async function myScoring(): Promise<ScoringQueue[]> {
   const sb = await supabaseServer();
   const { data: auth } = await sb.auth.getUser();
   if (!auth.user) return [];
   const [{ data: officiating }, { data: organising }] = await Promise.all([
-    sb.from("officials").select("court_id, event:events(slug)").eq("user_id", auth.user.id),
-    sb.from("events").select("slug").eq("organiser_id", auth.user.id).in("status", ["open", "live"]),
+    sb.from("officials").select("event_id, court_id").eq("user_id", auth.user.id).eq("role", "referee"),
+    sb.from("events").select("id").eq("organiser_id", auth.user.id).in("status", ["open", "live"]),
   ]);
-  const want = new Map<string, string | null>(); // slug -> court id, or null for every court
-  for (const o of officiating ?? []) want.set((o.event as unknown as { slug: string }).slug, o.court_id);
-  for (const e of organising ?? []) want.set(e.slug, null);
-  const out = [];
-  for (const [slug, court] of want) {
-    const ev = await getEvent(slug);
-    if (!ev || ev.status === "completed") continue;
-    const matches = ev.categories.flatMap((c) => c.matches)
-      .filter((m) => m.status !== "done" && m.a && m.b && m.a !== BYE && m.b !== BYE)
-      .filter((m) => court === null || m.courtId === court)
-      .sort((x, y) => (x.at ?? "9").localeCompare(y.at ?? "9"));
-    out.push({ event: ev, court: court ? (ev.courts.find((c) => c.id === court)?.name ?? null) : null, matches });
-  }
-  return out;
+  const courtFor = new Map<string, string | null>(); // event id -> the court they score, or null for every court
+  for (const o of officiating ?? []) courtFor.set(o.event_id, o.court_id);
+  for (const e of organising ?? []) courtFor.set(e.id, null);
+  if (!courtFor.size) return [];
+  const eventIds = [...courtFor.keys()];
+
+  const { data: rows } = await sb.from("matches")
+    .select("id, event_id, category_id, key, stage, grp, round, slot, entry_a, entry_b, score_a, score_b, status, court_id, scheduled_at, games")
+    .in("event_id", eventIds).neq("status", "done").not("entry_a", "is", null).not("entry_b", "is", null)
+    .order("scheduled_at", { nullsFirst: false }).limit(SCORING_LIMIT);
+  const ms = (rows ?? []).filter((m) => courtFor.get(m.event_id) === null || courtFor.get(m.event_id) === m.court_id);
+
+  const entryIds = [...new Set(ms.flatMap((m) => [m.entry_a, m.entry_b]))];
+  const [events, cats, courts, names] = await Promise.all([
+    sb.from("events").select("id, slug, title, status").in("id", eventIds),
+    sb.from("categories").select("id, name").in("id", [...new Set(ms.map((m) => m.category_id))]),
+    sb.from("courts").select("id, name").in("event_id", eventIds),
+    entryIds.length ? sb.from("entry_names").select("id, name").in("id", entryIds) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+  ]);
+  const catName = new Map((cats.data ?? []).map((c) => [c.id, c.name as string]));
+  const courtName = new Map((courts.data ?? []).map((c) => [c.id, c.name as string]));
+  const name = new Map((names.data ?? []).map((n) => [n.id, n.name as string]));
+
+  return (events.data ?? []).filter((e) => e.status !== "completed").map((e) => {
+    const court = courtFor.get(e.id) ?? null;
+    return {
+      event: { id: e.id, slug: e.slug, title: e.title },
+      court: court ? (courtName.get(court) ?? null) : null,
+      matches: ms.filter((m) => m.event_id === e.id).map((m): ScoringMatch => ({
+        id: m.id, key: m.key, stage: m.stage, group: m.grp ?? undefined, round: m.round, slot: m.slot,
+        a: name.get(m.entry_a) ?? null, b: name.get(m.entry_b) ?? null, status: m.status,
+        scoreA: m.score_a ?? undefined, scoreB: m.score_b ?? undefined, games: m.games ?? [],
+        category: catName.get(m.category_id) ?? "", court: m.court_id ? courtName.get(m.court_id) : undefined,
+        at: m.scheduled_at ?? undefined,
+      })),
+    };
+  });
+}
+
+export type MyEvent = EventSummary & { role: "organiser" | "co_organiser" };
+
+/** Every event the current user runs (owner or co-organiser), drafts included, split into still-to-run and past. */
+export async function myEvents(): Promise<{ active: MyEvent[]; past: MyEvent[] } | null> {
+  const sb = await supabaseServer();
+  const { data: auth } = await sb.auth.getUser();
+  if (!auth.user) return null;
+  const uid = auth.user.id;
+  const { data: co } = await sb.from("officials").select("event_id").eq("user_id", uid).eq("role", "co_organiser");
+  const coIds = (co ?? []).map((o) => o.event_id as string);
+  const { data, error } = await sb.from("events").select(EVENT_SELECT)
+    .or(`organiser_id.eq.${uid}${coIds.length ? `,id.in.(${coIds.join(",")})` : ""}`)
+    .order("starts_at").limit(200);
+  if (error) throw new Error(`Could not load your tournaments: ${error.message}`);
+  const events = (data as EventRow[]).map((r): MyEvent => ({ ...toEvent(r), role: r.organiser_id === uid ? "organiser" : "co_organiser" }));
+  return organiserOrder(events);
+}
+
+export type StaffMember = { userId: string; name: string; role: "referee" | "co_organiser"; court: string | null };
+export type StaffInvite = { token: string; note: string; expiresAt: string };
+
+/** Staff for an event, plus pending co-organiser invites (RLS shows those to the owner only). */
+export async function eventStaff(ev: { id: string; organiserId: string; courts: Court[] }) {
+  const sb = await supabaseServer();
+  const { data: auth } = await sb.auth.getUser();
+  const me = auth.user?.id ?? null;
+  const [{ data: officials }, { data: invites }] = await Promise.all([
+    sb.from("officials").select("user_id, role, court_id, profile:profiles(name)").eq("event_id", ev.id),
+    sb.from("staff_invites").select("token, note, expires_at").eq("event_id", ev.id)
+      .is("revoked_at", null).is("redeemed_at", null).gt("expires_at", new Date().toISOString()).order("created_at"),
+  ]);
+  const courtName = new Map(ev.courts.map((c) => [c.id, c.name]));
+  const members: StaffMember[] = (officials ?? []).map((o) => ({
+    userId: o.user_id, role: o.role, court: o.court_id ? (courtName.get(o.court_id) ?? null) : null,
+    name: (o.profile as unknown as { name: string } | null)?.name || "Unnamed player",
+  })).sort((a, b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name));
+  return {
+    me, isOwner: me !== null && me === ev.organiserId, members,
+    invites: (invites ?? []).map((i): StaffInvite => ({ token: i.token, note: i.note, expiresAt: i.expires_at })),
+  };
+}
+
+/** Emails and phones for an event's entries (player, or team captain). Managers only: the database refuses everyone else. */
+export async function entryContacts(eventId: string) {
+  const sb = await supabaseServer();
+  const { data, error } = await sb.rpc("entry_contacts", { p_event: eventId });
+  if (error) throw new Error(error.message);
+  return new Map(((data ?? []) as { entry_id: string; email: string | null; phone: string | null }[]).map((r) => [r.entry_id, r]));
 }
