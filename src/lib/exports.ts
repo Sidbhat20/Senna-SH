@@ -46,15 +46,20 @@ const PAYMENT: Record<string, string> = { not_required: "Free", unpaid: "Unpaid"
 
 export type Contact = { email: string | null; phone: string | null };
 
-export function entriesCsv(ev: EventDetail, contacts: Map<string, Contact>, answers: Map<string, Record<string, string>> = new Map(), payments: Map<string, string> = new Map()) {
+export type Claim = { ref: string; claimedAt: string | null };
+
+export function entriesCsv(ev: EventDetail, contacts: Map<string, Contact>, answers: Map<string, Record<string, string>> = new Map(), payments: Map<string, Claim> = new Map(), only?: Set<string>) {
   const qs = ev.regFields ?? [];
-  const rows: Cell[][] = [["Category", "Entry", "Club", "Seed", "Status", "Payment", "Checked in", "ID seen", "Players", "Email", "Phone", "UPI reference", ...qs.map((q) => q.label)]];
+  const rows: Cell[][] = [["Category", "Entry", "Club", "Source", "Seed", "Status", "Payment", "Amount (INR)", "Paid to UPI ID", "UPI reference", "Reported at",
+    "Checked in", "ID seen", "Players", "Email", "Phone", ...qs.map((q) => q.label)]];
   for (const c of ev.categories) {
-    for (const e of c.entryRows) {
+    for (const e of c.entryRows.filter((r) => !only || only.has(r.id))) {
       const who = contacts.get(e.id);
+      const pay = payments.get(e.id);
       rows.push([
-        c.name, e.name, e.club, e.seed, e.status[0].toUpperCase() + e.status.slice(1), PAYMENT[e.paymentStatus] ?? e.paymentStatus,
-        e.checkedIn, e.idChecked, e.roster.join("; "), who?.email, who?.phone, payments.get(e.id) ?? "", ...qs.map((q) => answers.get(e.id)?.[q.key] ?? ""),
+        c.name, e.name, e.club, e.source === "offline" ? "Walk-in / import" : "Online", e.seed, e.status[0].toUpperCase() + e.status.slice(1), PAYMENT[e.paymentStatus] ?? e.paymentStatus,
+        c.entryFee || "", c.entryFee ? (ev.upiId ?? "") : "", pay?.ref ?? "", istStamp(pay?.claimedAt ?? undefined),
+        e.checkedIn, e.idChecked, e.roster.join("; "), who?.email, who?.phone, ...qs.map((q) => answers.get(e.id)?.[q.key] ?? ""),
       ]);
     }
   }
@@ -82,4 +87,15 @@ export function orderOfPlayCsv(ev: EventDetail) {
   const rows: Cell[][] = [["Court", "Time", "Category", "Round", "Side A", "Side B", "Status"]];
   for (const { c, m } of ms) rows.push([m.court ?? "", istStamp(m.at), c.name, matchLabel(c, m), side(m.a), side(m.b), STATUS[m.status]]);
   return toCsv(rows);
+}
+
+const MODE = { upi: "UPI", cash: "Cash" } as const;
+
+/** Payments ledger for reconciling against the organiser's bank statement. */
+export function paymentsCsv(ev: EventDetail, rows: { entry: string; category: string; amount: number; status: string; mode: "upi" | "cash" | null; utr: string | null; claimedAt: string | null }[]) {
+  const out: Cell[][] = [["Category", "Entry", "Amount (INR)", "Status", "Mode", "Paid to UPI ID", "UPI reference", "Reported at"]];
+  for (const r of rows) {
+    out.push([r.category, r.entry, r.amount, PAYMENT[r.status] ?? r.status, r.mode ? MODE[r.mode] : "", r.mode === "upi" || r.utr ? (ev.upiId ?? "") : "", r.utr ?? "", istStamp(r.claimedAt ?? undefined)]);
+  }
+  return toCsv(out);
 }

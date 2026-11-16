@@ -675,9 +675,152 @@ describe("schema", () => {
 
     const a = await register(U[1], category);
     const b = await register(U[2], category);
-    await as(U[1], () => q("select claim_payment($1, '412345678901')", [a]));
-    await expect(as(U[2], () => q("select claim_payment($1, '412345678901')", [b]))).rejects.toThrow(/already been used/);
-    await as(U[1], () => q("select claim_payment($1, '412345678901')", [a])); // resending your own UTR is fine
+    await as(U[1], () => q("select claim_payment($1, '612345678901')", [a]));
+    await expect(as(U[2], () => q("select claim_payment($1, '612345678901')", [b]))).rejects.toThrow(/already been used/);
+    await as(U[1], () => q("select claim_payment($1, '612345678901')", [a])); // resending your own UTR is fine
+  });
+
+  it("UTR race fix: claim_payment takes an event-level lock before checking for reuse", async () => {
+    const { src } = await one<{ src: string }>("select prosrc as src from pg_proc where proname = 'claim_payment'");
+    expect(src).toMatch(/pg_advisory_xact_lock\(hashtext\('claim_payment:'/);
+    expect(src.indexOf("pg_advisory_xact_lock")).toBeLessThan(src.indexOf("already been used"));
+  });
+
+  it("UTR unique index: the database refuses a reused UTR on any path; resubmitting your own still works", async () => {
+    const one1 = await newCategory("knockout", "solo", 4, 500);
+    const one2 = await newCategory("knockout", "solo", 4, 500);
+    const a = await register(U[1], one1.category);
+    const b = await register(U[2], one1.category);
+    const c = await register(U[3], one2.category);
+    await as(U[1], () => q("select claim_payment($1, '512345678901')", [a]));
+    await as(U[1], () => q("select claim_payment($1, '512345678901')", [a])); // own resubmit is fine
+    // straight into the table, skipping claim_payment's check: the index itself refuses it
+    await expect(q("update entries set payment_ref = '512345678901' where id = $1", [b])).rejects.toThrow(/unique|duplicate key/);
+    await expect(as(U[3], () => q("select claim_payment($1, '512345678901')", [c]))).rejects.toThrow(/already been used/); // other event too
+  });
+
+  it("Release unpaid: after entries close, unpaid places free up; reported payments wait for the organiser", async () => {
+    const { event, category } = await newCategory("knockout", "solo", 2, 500);
+    const a = await register(U[1], category);
+    const b = await register(U[2], category);
+    await as(U[2], () => q("select claim_payment($1, '812345678901')", [b]));
+    expect(await as(null, () => one("select release_unpaid_entries($1) as n", [event]))).toEqual({ n: 0 }); // still open
+    await expect(as(ORG, () => q(`select add_entries($1, '[{"name": "Walk-in"}]')`, [category]))).rejects.toThrow(/spots left/);
+
+    await q("update events set reg_closes_at = now() - interval '1 hour' where id = $1", [event]);
+    expect(await as(null, () => one("select release_unpaid_entries($1) as n", [event]))).toEqual({ n: 1 });
+    expect((await one<{ status: string }>("select status from entries where id = $1", [a])).status).toBe("withdrawn");
+    expect(await one("select status, payment_status from entries where id = $1", [b])).toEqual({ status: "pending", payment_status: "claimed" });
+    await as(ORG, () => q(`select add_entries($1, '[{"name": "Walk-in"}]')`, [category])); // the freed place is taken
+  });
+
+  it("Import fees: walk-ins in a paid category owe the fee; free categories confirm straight away", async () => {
+    const paid = await newCategory("knockout", "solo", 4, 500);
+    const free = await newCategory("knockout", "solo", 4, 0);
+    await as(ORG, () => q(`select add_entries($1, '[{"name": "Payer"}]')`, [paid.category]));
+    await as(ORG, () => q(`select add_entries($1, '[{"name": "Freebie"}]')`, [free.category]));
+    expect(await one("select status, payment_status from entries where display_name = 'Payer'")).toEqual({ status: "pending", payment_status: "unpaid" });
+    expect(await one("select status, payment_status from entries where display_name = 'Freebie'")).toEqual({ status: "confirmed", payment_status: "not_required" });
+    // Mark paid (updateEntry op paid) still confirms the walk-in
+    await as(ORG, () => q("update entries set status = 'confirmed', payment_status = 'paid' where display_name = 'Payer'"));
+    expect(await one("select status, payment_status from entries where display_name = 'Payer'")).toEqual({ status: "confirmed", payment_status: "paid" });
+  });
+
+  it("Categories: managers edit name, fee and limit until the draw; can't undercut entries; add after publish", async () => {
+    const { event, category } = await newCategory("knockout", "solo", 4, 500);
+    const a = await register(U[1], category);
+    const b = await register(U[2], category);
+    await expect(as(U[5], () => q("select update_category($1, 'Hijack', 0, 4)", [category]))).rejects.toThrow(/organisers/);
+    await expect(as(ORG, () => q("select update_category($1, 'Open', 500, 1)", [category]))).rejects.toThrow(/already has 2 entries/);
+    await as(ORG, () => q("select update_category($1, ' Men''s Open ', 500, 8)", [category]));
+    expect(await one("select name, entry_fee, max_entries from categories where id = $1", [category])).toEqual({ name: "Men's Open", entry_fee: 500, max_entries: 8 });
+
+    await as(U[1], () => q("select claim_payment($1, '912345678901')", [a]));
+    await expect(as(ORG, () => q("select update_category($1, 'Open', 300, 8)", [category]))).rejects.toThrow(/already paid/);
+    await as(ORG, () => q("select reject_payment($1, 'test')", [a]));
+    await as(ORG, () => q("select update_category($1, 'Open', 0, 8)", [category])); // free now: waiting entries confirm
+    expect((await one<{ status: string }>("select status from entries where id = $1", [b])).status).toBe("confirmed");
+
+    const cat = { name: "Women's Open", format: "league", entry_type: "solo", max_entries: 6, entry_fee: 200 };
+    await expect(as(U[5], () => q("select add_category($1, $2)", [event, JSON.stringify(cat)]))).rejects.toThrow(/organisers/);
+    const { id } = await as(ORG, () => one<{ id: string }>("select add_category($1, $2) as id", [event, JSON.stringify(cat)]));
+    expect(await one("select name, format, max_entries, entry_fee, sort from categories where id = $1", [id]))
+      .toEqual({ name: "Women's Open", format: "league", max_entries: 6, entry_fee: 200, sort: 1 });
+    await expect(as(ORG, () => q("select add_category($1, $2)", [event, JSON.stringify(cat)]))).rejects.toThrow(/already called/);
+    const c = await register(U[3], category);
+    await as(ORG, () => q("select save_fixtures($1, $2)", [category, JSON.stringify(knockout([a, b, c]))]));
+    await expect(as(ORG, () => q("select update_category($1, 'Late', 0, 8)", [category]))).rejects.toThrow(/Fixtures are drawn/);
+    await expect(as(ORG, () => q("select add_category($1, $2)", [event, JSON.stringify({ ...cat, name: "Kids" })]))).rejects.toThrow(/before the tournament starts/); // live now
+    await q("update events set status = 'cancelled' where id = $1", [event]);
+    await expect(as(ORG, () => q("select add_category($1, $2)", [event, JSON.stringify({ ...cat, name: "Kids" })]))).rejects.toThrow(/before the tournament starts/);
+  });
+
+  it("Announcements: managers message entrants; only the owner reaches past players, never another organiser's", async () => {
+    await q("update auth.users set email = 'player' || right(id::text, 2) || '@example.com'");
+    const OWN = U[7]; // its own organiser, so other tests' events don't count as "past players"
+    let k = 0;
+    const eventBy = async (who: string) => {
+      const e = await as(who, () => one<{ id: string }>(
+        `insert into events (slug, title, sport, venue, starts_at, reg_closes_at)
+         values ($1, 'Announce test', 'badminton', 'Hall', now() + interval '7 days', now() + interval '6 days') returning id`, [`announce-${++k}`]));
+      const c = await one<{ id: string }>("insert into categories (event_id, name, format, entry_type, max_entries) values ($1, 'Open', 'knockout', 'solo', 8) returning id", [e.id]);
+      return { event: e.id, category: c.id };
+    };
+    const past = await eventBy(OWN);
+    await register(U[1], past.category);
+    await register(U[2], past.category);
+    const other = await eventBy(U[6]);
+    await register(U[3], other.category);
+
+    const cur = await eventBy(OWN);
+    await register(U[2], cur.category);
+    await register(U[4], cur.category);
+    const { t } = await as(OWN, () => one<{ t: string }>("select create_staff_invite($1, 'Co') as t", [cur.event]));
+    await as(U[8], () => q("select join_staff($1)", [t]));
+
+    const audience = (who: string, kind: string) => as(who, () => q<{ email: string }>("select email from message_audience($1, $2) order by email", [cur.event, kind]));
+    expect(await audience(OWN, "promotion")).toEqual([{ email: "player01@example.com" }]); // not U2 (already in), not U3 (someone else's)
+    await expect(audience(U[8], "promotion")).rejects.toThrow(/owner/);
+    await expect(audience(U[5], "general_info")).rejects.toThrow(/organisers/);
+    expect((await audience(U[8], "general_info")).map((r) => r.email)).toEqual(["player02@example.com", "player04@example.com"]);
+
+    const send = (who: string, kind: string, msg: string) => as(who, () => q<{ email: string; payload: { message: string } }>("select * from queue_message($1, $2, $3)", [cur.event, kind, msg]));
+    await expect(send(U[5], "general_info", "Hello everyone")).rejects.toThrow(/organisers/);
+    const first = await send(OWN, "general_info", "Parking is at gate 2");
+    expect(first.map((r) => r.email).sort()).toEqual(["player02@example.com", "player04@example.com"]);
+    expect(first[0].payload.message).toBe("Parking is at gate 2");
+    expect(await send(OWN, "general_info", "Parking is at gate 2")).toEqual([]); // no double email
+    expect(await send(OWN, "promotion", "Our next open is live, enter now")).toHaveLength(1);
+    // on-demand fixtures announcement reuses queue_notifications with its own round
+    const fx = await as(OWN, () => q("select * from queue_notifications($1, 'fixtures_released', null, null, 'manual-1')", [cur.event]));
+    expect(fx).toHaveLength(2);
+
+    await q("update events set status = 'draft' where id = $1", [cur.event]);
+    expect(await send(OWN, "general_info", "Draft events say nothing")).toEqual([]);
+  });
+
+  it("Reject payment: only managers reject a claimed payment; the player sees why and can claim again", async () => {
+    const { event, category } = await newCategory("knockout", "solo", 4, 500);
+    const { t } = await as(ORG, () => one<{ t: string }>("select create_staff_invite($1, 'Co') as t", [event]));
+    await as(U[8], () => q("select join_staff($1)", [t]));
+    const a = await register(U[1], category);
+    await expect(as(ORG, () => q("select reject_payment($1, 'x')", [a]))).rejects.toThrow(/reported/); // nothing claimed yet
+    await as(U[1], () => q("select claim_payment($1, '712345678901')", [a]));
+
+    await expect(as(U[2], () => q("select reject_payment($1, 'nope')", [a]))).rejects.toThrow(/organisers/);
+    await expect(as(U[1], () => q("select reject_payment($1, 'nope')", [a]))).rejects.toThrow(/organisers/);
+    await as(U[8], () => q("select reject_payment($1, '  Not in my bank statement  ')", [a])); // co-organiser can
+    expect(await one("select status, payment_status, payment_ref, payment_claimed_at from entries where id = $1", [a]))
+      .toEqual({ status: "pending", payment_status: "unpaid", payment_ref: null, payment_claimed_at: null });
+
+    await expect(as(null, () => q("select payment_rejection from entries where id = $1", [a]))).rejects.toThrow(/permission denied/);
+    expect(await as(U[1], () => one("select my_payment_note($1) as n", [a]))).toEqual({ n: "Not in my bank statement" });
+    expect(await as(U[2], () => one("select my_payment_note($1) as n", [a]))).toEqual({ n: null });
+
+    await as(U[1], () => q("select claim_payment($1, '712345678902')", [a]));
+    expect(await one("select payment_status, payment_rejection from entries where id = $1", [a])).toEqual({ payment_status: "claimed", payment_rejection: null });
+    await as(ORG, () => q("select reject_payment($1, '')", [a])); // blank reason gets a default
+    expect(await as(U[1], () => one("select my_payment_note($1) as n", [a]))).toEqual({ n: "The organiser couldn't find this payment" });
   });
 });
 

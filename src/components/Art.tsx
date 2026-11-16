@@ -20,7 +20,7 @@ export type ArtName = keyof typeof ICONS;
 
 export function Art({ name, size = 120, label, loop = false }: { name: ArtName; size?: number; label?: string; loop?: boolean }) {
   return (
-    <Sticker icon={ICONS[name]} palette={PALETTE} loop={loop} replayOnHover enter={0.15} label={label ?? ""}
+    <Sticker icon={ICONS[name]} palette={PALETTE} loop={loop} replayOnHover enter={0.15} label={label}
       style={{ width: size, height: size }} />
   );
 }

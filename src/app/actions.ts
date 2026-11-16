@@ -1,5 +1,6 @@
 "use server";
 
+import { CONFIRM_ERROR, isConfirmed } from "@/lib/confirm";
 import { revalidatePath } from "next/cache";
 import { advance } from "@/lib/fixtures/advance";
 import { separateClubs } from "@/lib/fixtures/clubs";
@@ -13,7 +14,7 @@ import type { Match, StageKind } from "@/lib/fixtures/types";
 import { capFor, FORMATS, LAUNCH_SPORTS, SPORT_DEFAULTS, type Format, type Sport } from "@/lib/sports";
 import { readEntriesCsv } from "@/lib/csv-import";
 import { answersFrom, fieldKey, type RegField } from "@/lib/reg-fields";
-import { notify } from "@/lib/notify";
+import { notify, announce } from "@/lib/notify";
 import { validUpiId } from "@/lib/upi";
 import { supabaseServer } from "@/lib/supabase/server";
 
@@ -63,18 +64,8 @@ export async function createEvent(d: NewEvent): Promise<ActionState & { slug?: s
     if (n.length < 2) return { error: "Every category needs a name." };
     if (names.has(n.toLowerCase())) return { error: `Two categories are called "${n}".` };
     names.add(n.toLowerCase());
-    if (!(c.format in FORMATS)) return { error: `Choose a format for ${n}.` };
-    if (!["solo", "pair", "team"].includes(c.entryType)) return { error: `Choose who enters ${n}.` };
-    if (racquet && (![1, 3, 5].includes(whole(c.bestOf)) || !(whole(c.pointsTo) >= 5 && whole(c.pointsTo) <= 50))) {
-      return { error: `${n}: check the game scoring.` };
-    }
-    for (const day of [c.bornOnOrAfter, c.bornOnOrBefore]) if (day && !/^\d{4}-\d{2}-\d{2}$/.test(day)) return { error: `${n}: check the age limit.` };
-    const max = whole(c.maxEntries);
-    if (!(max >= 2 && max <= 128)) return { error: `${n}: allow between 2 and 128 entries.` };
-    if (!(whole(c.entryFee) >= 0)) return { error: `${n}: the fee can't be negative.` };
-    if (c.format === "groups_knockout" && !(whole(c.groupCount) >= 2 && max >= whole(c.groupCount) * 2)) {
-      return { error: `${n}: each group needs at least two entries.` };
-    }
+    const bad = checkCategory(c, n, racquet);
+    if (bad) return { error: bad };
   }
 
   const slug = `${slugify(title)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -86,21 +77,44 @@ export async function createEvent(d: NewEvent): Promise<ActionState & { slug?: s
       starts_at: starts.toISOString(), reg_closes_at: closes.toISOString(), match_minutes: matchMinutes,
       break_minutes: breakMinutes, age_check: d.ageCheck === "desk" ? "desk" : "self",
     },
-    p_categories: d.categories.map((c) => ({
-      name: str(c.name, 60), format: c.format, entry_type: c.entryType,
-      group_count: c.format === "groups_knockout" ? whole(c.groupCount) : null,
-      team_size: c.entryType === "team" ? Math.min(30, Math.max(2, whole(c.teamSize) || 2)) : c.entryType === "pair" ? 2 : 1,
-      max_entries: whole(c.maxEntries), entry_fee: whole(c.entryFee),
-      scoring: racquet ? "games" : "goals", best_of: racquet ? whole(c.bestOf) : 1, points_to: racquet ? whole(c.pointsTo) : 21,
-      points_cap: racquet ? capFor(d.sport as Sport, whole(c.pointsTo)) : null,
-      born_on_or_after: c.bornOnOrAfter || null, born_on_or_before: c.bornOnOrBefore || null,
-    })),
+    p_categories: d.categories.map((c) => categoryRow(c, d.sport as Sport)),
     p_courts: courts,
   });
   if (error) return { error: `Couldn't publish: ${error.message}` };
   const ev = data as { id: string; slug: string };
   revalidatePath("/tournaments");
   return { ok: "Published", slug: ev.slug, id: ev.id }; // the browser uploads the poster (if any), then opens the page
+}
+
+/** The wizard's checks for one category, shared with adding a category after publishing. */
+function checkCategory(c: NewCategory, n: string, racquet: boolean): string | null {
+  if (!(c.format in FORMATS)) return `Choose a format for ${n}.`;
+  if (!["solo", "pair", "team"].includes(c.entryType)) return `Choose who enters ${n}.`;
+  if (racquet && (![1, 3, 5].includes(whole(c.bestOf)) || !(whole(c.pointsTo) >= 5 && whole(c.pointsTo) <= 50))) {
+    return `${n}: check the game scoring.`;
+  }
+  for (const day of [c.bornOnOrAfter, c.bornOnOrBefore]) if (day && !/^\d{4}-\d{2}-\d{2}$/.test(day)) return `${n}: check the age limit.`;
+  const max = whole(c.maxEntries);
+  if (!(max >= 2 && max <= 128)) return `${n}: allow between 2 and 128 entries.`;
+  if (!(whole(c.entryFee) >= 0)) return `${n}: the fee can't be negative.`;
+  if (c.format === "groups_knockout" && !(whole(c.groupCount) >= 2 && max >= whole(c.groupCount) * 2)) {
+    return `${n}: each group needs at least two entries.`;
+  }
+  return null;
+}
+
+/** One category as publish_event / add_category expect it. */
+function categoryRow(c: NewCategory, sport: Sport) {
+  const racquet = SPORT_DEFAULTS[sport].scoring.kind === "games";
+  return {
+    name: str(c.name, 60), format: c.format, entry_type: c.entryType,
+    group_count: c.format === "groups_knockout" ? whole(c.groupCount) : null,
+    team_size: c.entryType === "team" ? Math.min(30, Math.max(2, whole(c.teamSize) || 2)) : c.entryType === "pair" ? 2 : 1,
+    max_entries: whole(c.maxEntries), entry_fee: whole(c.entryFee),
+    scoring: racquet ? "games" : "goals", best_of: racquet ? whole(c.bestOf) : 1, points_to: racquet ? whole(c.pointsTo) : 21,
+    points_cap: racquet ? capFor(sport, whole(c.pointsTo)) : null,
+    born_on_or_after: c.bornOnOrAfter || null, born_on_or_before: c.bornOnOrBefore || null,
+  };
 }
 
 const done = (slug: FormDataEntryValue | null, ok: string): ActionState => {
@@ -156,6 +170,7 @@ export async function updateEntry(_: ActionState, form: FormData): Promise<Actio
   const op = String(form.get("op"));
   let res;
   if (op === "paid") res = await sb.from("entries").update({ status: "confirmed", payment_status: "paid" }).eq("id", id).select("id");
+  else if (op === "remove" && !isConfirmed(form)) return { error: CONFIRM_ERROR };
   else if (op === "remove") res = await sb.from("entries").delete().eq("id", id).select("id");
   else if (op === "seed") {
     const raw = form.get("seed")?.toString().trim();
@@ -339,7 +354,7 @@ export async function renameCourt(_: ActionState, form: FormData): Promise<Actio
 export async function setCategoryStatus(_: ActionState, form: FormData): Promise<ActionState> {
   const status = String(form.get("status"));
   if (!["open", "locked", "cancelled"].includes(status)) return { error: "Unknown change." };
-  if (status === "cancelled" && form.get("confirm") !== "yes") return { error: "Tick the box to confirm." };
+  if (status === "cancelled" && !isConfirmed(form)) return { error: CONFIRM_ERROR };
   const sb = await supabaseServer();
   const { error } = await sb.rpc("set_category_status", { p_category: String(form.get("category")), p_status: status });
   if (error) return { error: error.message };
@@ -354,7 +369,7 @@ export async function closeAllEntries(_: ActionState, form: FormData): Promise<A
 }
 
 export async function cancelEvent(_: ActionState, form: FormData): Promise<ActionState> {
-  if (form.get("confirm") !== "yes") return { error: "Tick the box to confirm." };
+  if (!isConfirmed(form)) return { error: CONFIRM_ERROR };
   const sb = await supabaseServer();
   const { error } = await sb.rpc("cancel_event", { p_event: String(form.get("event")) });
   if (error) return { error: error.message };
@@ -389,12 +404,12 @@ export async function removeOfficial(_: ActionState, form: FormData): Promise<Ac
 
 // ---------- P0.7: players withdraw before the draw ----------
 export async function withdrawEntry(_: ActionState, form: FormData): Promise<ActionState> {
-  if (form.get("confirm") !== "yes") return { error: "Tick the box to confirm." };
+  if (!isConfirmed(form)) return { error: CONFIRM_ERROR };
   const sb = await supabaseServer();
   const { error } = await sb.rpc("withdraw_entry", { p_entry: String(form.get("entry")) });
   if (error) return { error: error.message };
   revalidatePath("/tournaments");
-  return done(form.get("slug"), "You've withdrawn. Your spot is free for someone else.");
+  return done(form.get("slug"), "You've withdrawn. Your place goes back to the pool; to play after all, ask the organiser to add you.");
 }
 
 // ---------- P0.4: call a match from the desk ----------
@@ -478,11 +493,96 @@ export async function setUpiId(_: ActionState, form: FormData): Promise<ActionSt
   return done(form.get("slug"), upi ? "Saved. Players in paid categories now see a Pay with UPI button." : "UPI ID removed.");
 }
 
+export async function rejectPayment(_: ActionState, form: FormData): Promise<ActionState> {
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("reject_payment", { p_entry: String(form.get("entry")), p_reason: str(form.get("reason"), 200) });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), "Rejected. The player can send a new UTR.");
+}
+
 export async function claimPayment(_: ActionState, form: FormData): Promise<ActionState> {
   const ref = str(form.get("ref"), 40).replace(/\s+/g, "");
-  if (!/^[A-Za-z0-9]{6,30}$/.test(ref)) return { error: "Enter the UTR from your UPI app: the 12-digit reference shown after paying." };
+  if (!/^[A-Za-z0-9]{6,30}$/.test(ref)) return { error: "Enter the UTR from your UPI app: 6 to 30 letters or digits, shown after paying." };
   const sb = await supabaseServer();
   const { error } = await sb.rpc("claim_payment", { p_entry: String(form.get("entry")), p_ref: ref });
   if (error) return { error: error.message };
   return done(form.get("slug"), "Thanks. The organiser will check it and confirm your place.");
+}
+
+// ---------- Organiser UX P0.5: categories after publishing ----------
+export async function updateCategory(_: ActionState, form: FormData): Promise<ActionState> {
+  const name = str(form.get("name"), 60);
+  const fee = whole(form.get("fee"));
+  const max = whole(form.get("max"));
+  if (name.length < 2) return { error: "Category names are 2 to 60 characters." };
+  if (!(fee >= 0 && fee <= 1_000_000)) return { error: "Enter the fee in whole rupees, 0 for free." };
+  if (!(max >= 2 && max <= 128)) return { error: "Allow between 2 and 128 entries." };
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("update_category", { p_category: String(form.get("category")), p_name: name, p_fee: fee, p_max: max });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), "Saved.");
+}
+
+export async function addCategory(_: ActionState, form: FormData): Promise<ActionState> {
+  const sport = String(form.get("sport")) as Sport;
+  if (!(sport in SPORT_DEFAULTS)) return { error: "Unknown sport." };
+  const defaults = SPORT_DEFAULTS[sport];
+  const c: NewCategory = {
+    name: str(form.get("name"), 60), format: String(form.get("format")), groupCount: whole(form.get("groups") ?? 0),
+    entryType: String(form.get("entry_type")), teamSize: whole(form.get("team_size") ?? 0), maxEntries: whole(form.get("max")),
+    entryFee: whole(form.get("fee")), bestOf: whole(form.get("best_of") || (defaults.scoring.kind === "games" ? defaults.scoring.bestOf : 1)),
+    pointsTo: whole(form.get("points_to") || (defaults.scoring.kind === "games" ? defaults.scoring.pointsTo : 21)),
+    bornOnOrAfter: str(form.get("born_after"), 10) || null, bornOnOrBefore: str(form.get("born_before"), 10) || null,
+  };
+  if (c.name.length < 2) return { error: "Every category needs a name." };
+  const bad = checkCategory(c, c.name, defaults.scoring.kind === "games");
+  if (bad) return { error: bad };
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("add_category", { p_event: String(form.get("event")), c: categoryRow(c, sport) });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), `${c.name} added. Players can enter it now.`);
+}
+
+// ---------- Organiser UX P0.6: bulk actions on the entries desk ----------
+export async function bulkEntries(_: ActionState, form: FormData): Promise<ActionState> {
+  const ids = String(form.get("ids") ?? "").split(",").map((x) => x.trim()).filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 500);
+  const op = String(form.get("op"));
+  if (!ids.length) return { error: "Tick at least one entry." };
+  const sb = await supabaseServer();
+  let res;
+  if (op === "paid") {
+    // cash at the desk; RLS (managers edit entries) refuses anyone else, so a refused row simply isn't counted
+    res = await sb.from("entries").update({ status: "confirmed", payment_status: "paid" }).in("id", ids).eq("status", "pending").select("id");
+  } else if (op === "remove") {
+    if (!isConfirmed(form)) return { error: CONFIRM_ERROR };
+    const { data: rows } = await sb.from("entries").select("category_id").in("id", ids);
+    const cats = [...new Set((rows ?? []).map((r) => r.category_id as string))];
+    const { count } = cats.length ? await sb.from("matches").select("id", { count: "exact", head: true }).in("category_id", cats) : { count: 0 };
+    if (count) return { error: "Some of these are in a category that's already drawn, so they can't be removed. Give a walkover instead." };
+    res = await sb.from("entries").delete().in("id", ids).select("id");
+  } else return { error: "Unknown change." };
+  if (res.error) return { error: res.error.message };
+  const n = res.data?.length ?? 0;
+  if (!n) return { error: op === "paid" ? "Nothing to mark: those entries are already confirmed." : "Nothing was removed." };
+  return done(form.get("slug"), op === "paid" ? `${n} marked paid.` : `${n} removed.`);
+}
+
+// ---------- Organiser UX P0.8: announcements ----------
+export async function sendAnnouncement(_: ActionState, form: FormData): Promise<ActionState> {
+  const kind = String(form.get("kind"));
+  const event = String(form.get("event"));
+  const sb = await supabaseServer();
+  let told: string;
+  if (kind === "fixtures_released" || kind === "schedule_update") {
+    // once a day per player for on-demand resends; the automatic emails on draw and re-plan stay separate
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+    told = await notify(sb, event, kind, { round: `manual-${day}` });
+  } else if (kind === "general_info" || kind === "promotion") {
+    if (kind === "promotion" && !isConfirmed(form)) return { error: CONFIRM_ERROR };
+    const message = str(form.get("message"), 1000);
+    if (message.length < 5) return { error: "Write the message first." };
+    told = await announce(sb, event, kind, message);
+  } else return { error: "Unknown message." };
+  if (told.startsWith("Emails weren't sent")) return { error: told };
+  return done(form.get("slug"), told);
 }

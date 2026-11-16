@@ -4,12 +4,17 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Art } from "@/components/Art";
 import { date, sportName, StatusPill } from "@/components/ui";
-import { myEvents, type MyEvent } from "@/lib/data";
+import { myEvents, SPORTS, type MyEvent } from "@/lib/data";
+import { shareLinks } from "@/lib/notify";
+import { filterEvents } from "@/lib/organise";
+import { CopyLink } from "@/app/t/[slug]/Panels";
 
 export const metadata: Metadata = { title: "Your tournaments", robots: { index: false } };
 
 function EventCard({ e }: { e: MyEvent }) {
   const entries = e.categories.reduce((s, c) => s + c.entryCount, 0);
+  const unpaid = e.categories.reduce((s, c) => s + c.pendingCount, 0);
+  const share = e.status !== "draft" && e.status !== "cancelled" ? shareLinks(e) : null;
   const cats = e.categories.length;
   const link = "rounded-lg border border-line bg-white px-3 py-1.5 text-[15px] font-semibold hover:border-ink";
   return (
@@ -31,22 +36,40 @@ function EventCard({ e }: { e: MyEvent }) {
           <Link href={`/t/${e.slug}`} className="hover:underline">{e.title}</Link>
         </h3>
         <p className="text-[15px] text-muted">
-          {sportName(e)}, {date(e.startsAt)}, {e.venue}. {entries} {entries === 1 ? "entry" : "entries"} in {cats} {cats === 1 ? "category" : "categories"}.
+          {sportName(e)}, {date(e.startsAt)}, {e.venue}. {entries} {entries === 1 ? "entry" : "entries"}{unpaid ? `, ${unpaid} unpaid` : ""} in {cats} {cats === 1 ? "category" : "categories"}.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
+          <Link href={`/t/${e.slug}/manage`} className={`${link} border-ink bg-ink text-chalk hover:bg-pitch`}>Manage</Link>
           <Link href={`/t/${e.slug}`} className={link}>Event page</Link>
           {e.status !== "draft" && <Link href={`/t/${e.slug}/desk`} className={link}>Desk</Link>}
           <Link href={`/t/${e.slug}?view=schedule`} className={link}>Order of play</Link>
         </div>
+        {share && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-[14px]">
+            <span className="text-muted">Share</span>
+            <a href={share.whatsapp} target="_blank" rel="noopener noreferrer" className="font-semibold underline-offset-4 hover:underline">WhatsApp</a>
+            <a href={share.x} target="_blank" rel="noopener noreferrer" className="font-semibold underline-offset-4 hover:underline">X</a>
+            <a href={share.facebook} target="_blank" rel="noopener noreferrer" className="font-semibold underline-offset-4 hover:underline">Facebook</a>
+            <div className="w-full sm:w-72"><CopyLink path={`/t/${e.slug}`} label="Link, or Instagram" /></div>
+          </div>
+        )}
       </div>
     </li>
   );
 }
 
-export default async function OrganiserHome() {
-  const mine = await myEvents();
-  if (!mine) redirect("/login?next=/organise"); // middleware normally catches this first
-  const none = !mine.active.length && !mine.past.length;
+const STATUSES = [["", "Any status"], ["draft", "Draft"], ["open", "Taking entries"], ["locked", "Entries closed"], ["live", "Live"], ["completed", "Finished"], ["cancelled", "Cancelled"]];
+
+type Props = { searchParams: Promise<{ q?: string; sport?: string; status?: string }> };
+
+export default async function OrganiserHome({ searchParams }: Props) {
+  const all = await myEvents();
+  if (!all) redirect("/login?next=/organise"); // middleware normally catches this first
+  const f = await searchParams;
+  const filtering = !!(f.q?.trim() || f.sport || f.status);
+  const mine = { active: filterEvents(all.active, f), past: filterEvents(all.past, f) };
+  const none = !all.active.length && !all.past.length;
+  const field = "h-10 rounded-lg border border-line bg-white px-3 text-[15px] focus:border-ink focus:outline-none";
 
   return (
     <div className="mx-auto max-w-4xl px-4 pt-10">
@@ -70,9 +93,22 @@ export default async function OrganiserHome() {
         </div>
       ) : (
         <>
+          <form role="search" className="mt-8 flex flex-wrap gap-2">
+            <input name="q" defaultValue={f.q ?? ""} placeholder="Search by name" aria-label="Search your tournaments" className={`${field} min-w-0 flex-1 basis-48`} />
+            <select name="sport" defaultValue={f.sport ?? ""} aria-label="Sport" className={field}>
+              <option value="">Any sport</option>
+              {Object.entries(SPORTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <select name="status" defaultValue={f.status ?? ""} aria-label="Status" className={field}>
+              {STATUSES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <button className="h-10 rounded-lg bg-ink px-4 font-semibold text-chalk">Filter</button>
+            {filtering && <Link href="/organise" className="inline-flex h-10 items-center px-2 text-[15px] underline underline-offset-4">Clear</Link>}
+          </form>
+          {filtering && !mine.active.length && !mine.past.length && <p className="mt-6 text-muted">No tournaments match. Try fewer filters.</p>}
           <section className="mt-8" aria-labelledby="active">
             <h2 id="active" className="font-display text-2xl font-bold">Coming up and live</h2>
-            {mine.active.length ? (
+            {mine.active.length || filtering ? (
               <ul className="divide-y divide-line">{mine.active.map((e) => <EventCard key={e.id} e={e} />)}</ul>
             ) : (
               <p className="mt-2 text-muted">Nothing coming up. Your finished tournaments are below.</p>

@@ -393,8 +393,8 @@ describe("CSV exports", () => {
     categories: [{
       name: "Men's Singles", format: "knockout",
       entryRows: [
-        { id: "e1", name: "Arjun Rao", club: "Smash", seed: 1, status: "confirmed", paymentStatus: "paid", checkedIn: true, idChecked: false, roster: [] },
-        { id: "e2", name: "Walk-in", club: "", seed: null, status: "confirmed", paymentStatus: "not_required", checkedIn: false, idChecked: false, roster: [] },
+        { id: "e1", name: "Arjun Rao", club: "Smash", seed: 1, status: "confirmed", paymentStatus: "paid", checkedIn: true, idChecked: false, roster: [], source: "online" },
+        { id: "e2", name: "Walk-in", club: "", seed: null, status: "confirmed", paymentStatus: "not_required", checkedIn: false, idChecked: false, roster: [], source: "offline" },
       ],
       matches: [
         { id: "m1", key: "k1", stage: "knockout", round: 1, slot: 0, a: "Arjun Rao", b: "Walk-in", status: "scheduled", games: [], courtId: "c2", court: "Court 2", at: "2026-12-20T03:30:00Z" },
@@ -407,9 +407,23 @@ describe("CSV exports", () => {
   it("entries include payment and contacts for managers", () => {
     const csv = entriesCsv(ev, new Map([["e1", { email: "arjun@example.com", phone: "+919000000000" }]]));
     const lines = csv.replace("﻿", "").trim().split("\r\n");
-    expect(lines[0]).toBe("Category,Entry,Club,Seed,Status,Payment,Checked in,ID seen,Players,Email,Phone,UPI reference");
-    expect(lines[1]).toBe("Men's Singles,Arjun Rao,Smash,1,Confirmed,Paid,Yes,No,,arjun@example.com,'+919000000000,");
-    expect(lines[2]).toBe("Men's Singles,Walk-in,,,Confirmed,Free,No,No,,,,");
+    expect(lines[0]).toBe("Category,Entry,Club,Source,Seed,Status,Payment,Amount (INR),Paid to UPI ID,UPI reference,Reported at,Checked in,ID seen,Players,Email,Phone");
+    expect(lines[1]).toBe("Men's Singles,Arjun Rao,Smash,Online,1,Confirmed,Paid,,,,,Yes,No,,arjun@example.com,'+919000000000");
+    expect(lines[2]).toBe("Men's Singles,Walk-in,,Walk-in / import,,Confirmed,Free,,,,,No,No,,,");
+  });
+
+  it("entries download can be limited to the ticked rows", () => {
+    const lines = entriesCsv(ev, new Map(), new Map(), new Map(), new Set(["e2"])).replace("\uFEFF", "").trim().split("\r\n");
+    expect(lines.length).toBe(2);
+    expect(lines[1]).toContain("Walk-in / import");
+  });
+
+  it("entries carry amount, organiser VPA, UTR and when it was reported, for reconciliation", () => {
+    const paid = { ...ev, upiId: "smash@okhdfcbank", categories: ev.categories.map((c) => ({ ...c, entryFee: 500 })) } as EventDetail;
+    const lines = entriesCsv(paid, new Map(), new Map(), new Map([["e1", { ref: "412345678901", claimedAt: "2026-12-01T04:30:00Z" }]]))
+      .replace("\uFEFF", "").trim().split("\r\n");
+    expect(lines[1]).toContain(",Paid,500,smash@okhdfcbank,412345678901,2026-12-01 10:00,");
+    expect(lines[2]).toContain(",Free,500,smash@okhdfcbank,,,");
   });
 
   it("order of play is by court then time, without byes", () => {
@@ -418,6 +432,18 @@ describe("CSV exports", () => {
       "Court 1,2026-12-20 09:30,Men's Singles,Final,Ravi,Meera,Scheduled",
       "Court 2,2026-12-20 09:00,Men's Singles,Semi-finals,Arjun Rao,Walk-in,Scheduled",
     ]);
+  });
+});
+
+import { courtFor } from "../courtFor";
+
+describe("scoring queue", () => {
+  it("co-organisers score every court, referees only theirs, owners every court", () => {
+    const m = courtFor([
+      { event_id: "ev1", court_id: null, role: "co_organiser" },
+      { event_id: "ev2", court_id: "c2", role: "referee" },
+    ], [{ id: "ev3" }]);
+    expect([...m]).toEqual([["ev1", null], ["ev2", "c2"], ["ev3", null]]);
   });
 });
 
@@ -575,15 +601,226 @@ import { payRef, upiLink, validUpiId } from "../upi";
 
 describe("UPI to the organiser", () => {
   it("builds a UPI link any app opens, with amount, payee and reference", () => {
-    const link = upiLink({ upiId: "ravi@okhdfcbank", payee: "Smash Arena", rupees: 500, note: "SH 3F9A2C1B Men's Singles" });
+    const ref = payRef("3f9a2c1b-0000-4000-8000-000000000000");
+    const link = upiLink({ upiId: "ravi@okhdfcbank", payee: "Smash Arena", rupees: 500, ref, note: `${ref} Men's Singles entry` });
     expect(link.startsWith("upi://pay?")).toBe(true);
     const q = new URLSearchParams(link.split("?")[1]);
-    expect([q.get("pa"), q.get("pn"), q.get("am"), q.get("cu"), q.get("tn")]).toEqual(["ravi@okhdfcbank", "Smash Arena", "500.00", "INR", "SH 3F9A2C1B Men's Singles"]);
+    expect([q.get("pa"), q.get("pn"), q.get("am"), q.get("cu"), q.get("tn")]).toEqual(["ravi@okhdfcbank", "Smash Arena", "500.00", "INR", "SH3F9A2C1B Men's Singles entry"]);
+    const tr = q.get("tr")!;
+    expect(tr).toBe(ref);
+    expect(tr.length).toBeLessThanOrEqual(35);
+    expect(tr).not.toMatch(/\s/);
+    expect(upiLink({ upiId: "a@ybl", payee: "x", rupees: 1, ref: "A B ".repeat(20), note: "n" }).match(/tr=([^&]+)/)![1].length).toBeLessThanOrEqual(35);
     expect(link).not.toContain("+");
   });
   it("checks UPI IDs and makes short references", () => {
     expect(["ravi@okhdfcbank", "smash.arena-1@ybl"].every(validUpiId)).toBe(true);
     expect(["ravi", "ravi@", "@ybl", "ravi@ok hdfc", "ravi@123"].some(validUpiId)).toBe(false);
-    expect(payRef("3f9a2c1b-0000-4000-8000-000000000000")).toBe("SH 3F9A2C1B");
+    expect(payRef("3f9a2c1b-0000-4000-8000-000000000000")).toBe("SH3F9A2C1B");
+  });
+});
+
+import { QUIET, qrPath } from "../qr";
+
+describe("UPI QR", () => {
+  const link = upiLink({ upiId: "ravi@okhdfcbank", payee: "Smash Arena", rupees: 500, ref: "SH3F9A2C1B", note: "SH3F9A2C1B Men's Singles entry" });
+  it("encodes the pay link at a standard QR size with the quiet zone", () => {
+    const { size, d } = qrPath(link);
+    const modules = size - QUIET * 2;
+    expect((modules - 21) % 4).toBe(0); // QR versions are 21, 25, 29... modules wide
+    expect(modules).toBeGreaterThanOrEqual(29);
+    expect(d.length).toBeGreaterThan(100);
+    expect(qrPath(link)).toEqual({ size, d }); // deterministic
+  });
+  it("has the three finder squares in the corners", () => {
+    const { size, d } = qrPath(link);
+    const dark = new Set(d.match(/M\d+ \d+/g)!.map((m) => m.slice(1)));
+    const n = size - QUIET * 2;
+    for (const [x, y] of [[0, 0], [n - 7, 0], [0, n - 7]]) {
+      expect(dark.has(`${x + QUIET} ${y + QUIET}`)).toBe(true); // finder corner
+      expect(dark.has(`${x + QUIET + 1} ${y + QUIET + 1}`)).toBe(false); // finder's white ring
+    }
+  });
+});
+
+import { CONFIRM_ERROR, isConfirmed } from "../confirm";
+import { kpis, readiness, readyToDraw } from "../overview";
+
+describe("confirm dialog guard", () => {
+  it("only confirm=yes lets a destructive action run", () => {
+    const f = new FormData();
+    expect(isConfirmed(f)).toBe(false);
+    f.set("confirm", "on");
+    expect(isConfirmed(f)).toBe(false);
+    f.set("confirm", "yes");
+    expect(isConfirmed(f)).toBe(true);
+    expect(CONFIRM_ERROR).toMatch(/confirm/);
+  });
+});
+
+describe("organiser overview", () => {
+  const entry = (id: string, status: string, paymentStatus: string) =>
+    ({ id, name: id, club: "", seed: null, status, paymentStatus, checkedIn: false, idChecked: false, roster: [] });
+  const base = {
+    slug: "x", venue: "Smash Arena", rules: ["Feather shuttles"], upiId: null, regClosesAt: "2099-01-01T00:00:00Z", startsAt: "2099-01-02T00:00:00Z",
+    courts: [{ id: "c1", name: "Court 1" }],
+    categories: [{
+      id: "k1", name: "Open", format: "knockout", status: "open", maxEntries: 8, entryFee: 500, matches: [],
+      entryRows: [entry("a", "confirmed", "paid"), entry("b", "pending", "unpaid"), entry("c", "pending", "claimed"), entry("d", "withdrawn", "unpaid")],
+    }],
+  } as unknown as EventDetail;
+
+  it("counts entries, fees due and spots left", () => {
+    const k = kpis(base);
+    expect([k.confirmed, k.pending, k.withdrawn]).toEqual([1, 2, 1]);
+    expect(k.unpaid).toEqual({ count: 1, rupees: 500 });
+    expect(k.claimed).toEqual({ count: 1, rupees: 500 });
+    expect(k.spotsLeft).toBe(5); // 8 places, 3 still held (withdrawn frees one)
+    expect(k.next).toBeNull();
+  });
+
+  it("isn't ready to draw until there are enough confirmed entries", () => {
+    expect(readyToDraw(base)).toBe(false); // one confirmed
+    const two = structuredClone(base);
+    two.categories[0].entryRows[1].status = "confirmed";
+    expect(readyToDraw(two)).toBe(true);
+    const groups = structuredClone(two);
+    groups.categories[0].format = "groups_knockout"; // groups need four
+    expect(readyToDraw(groups)).toBe(false);
+  });
+
+  it("readiness asks for a UPI ID only when a category has a fee, and links each row", () => {
+    const checks = readiness(base, 0);
+    const byKey = Object.fromEntries(checks.map((c) => [c.key, c]));
+    expect(byKey.upi.done).toBe(false);
+    expect(byKey.upi.href).toBe("/manage/settings#fees");
+    expect(byKey.details.done).toBe(true);
+    expect(byKey.enough.done).toBe(false);
+    expect(byKey.drawn.done).toBe(false);
+    expect(byKey.staff.done).toBe(false);
+    const free = structuredClone(base);
+    free.categories[0].entryFee = 0;
+    expect(readiness(free, 1).some((c) => c.key === "upi")).toBe(false);
+  });
+});
+
+import { filterEvents } from "../organise";
+import { shareLinks } from "../notify";
+
+describe("organiser home", () => {
+  const evs = [
+    { title: "Whitefield Smash Open", sport: "badminton", status: "open" as const },
+    { title: "Koramangala Futsal Cup", sport: "futsal", status: "completed" as const },
+  ];
+  it("searches titles and filters by sport and status", () => {
+    expect(filterEvents(evs, {}).length).toBe(2);
+    expect(filterEvents(evs, { q: "  smash " }).map((e) => e.sport)).toEqual(["badminton"]);
+    expect(filterEvents(evs, { sport: "futsal" }).map((e) => e.status)).toEqual(["completed"]);
+    expect(filterEvents(evs, { status: "open", sport: "futsal" })).toEqual([]);
+  });
+
+  it("every share target points at the public event page", () => {
+    const s = shareLinks({ title: "Whitefield Open", slug: "whitefield-open-ab12", venue: "Smash Arena", startsAt: "2026-12-20T03:30:00Z" }, "https://sportshunt.in");
+    const page = "https://sportshunt.in/t/whitefield-open-ab12";
+    expect(s.url).toBe(page);
+    for (const href of [s.whatsapp, s.x, s.facebook]) expect(decodeURIComponent(href)).toContain(page);
+  });
+});
+
+import { filterPayments, paymentRows, paymentTotals } from "../payments";
+import { paymentsCsv } from "../exports";
+
+describe("payments desk", () => {
+  const e = (id: string, status: string, paymentStatus: string) =>
+    ({ id, name: `Player ${id}`, club: "", seed: null, status, paymentStatus, checkedIn: false, idChecked: false, roster: [], source: "online" });
+  const ev = {
+    upiId: "smash@okhdfcbank",
+    categories: [
+      { name: "Open", entryFee: 500, entryRows: [e("a", "pending", "unpaid"), e("b", "pending", "claimed"), e("c", "confirmed", "paid"), e("d", "confirmed", "paid"), e("x", "withdrawn", "unpaid")] },
+      { name: "Kids", entryFee: 0, entryRows: [e("f", "confirmed", "not_required")] },
+      { name: "Vets", entryFee: 300, entryRows: [e("r", "withdrawn", "refunded")] },
+    ],
+  } as unknown as EventDetail;
+  const claims = new Map([["b", { ref: "412345678901", claimedAt: "2026-12-01T04:30:00Z" }], ["c", { ref: "512345678901", claimedAt: "2026-12-01T05:00:00Z" }]]);
+  const rows = paymentRows(ev, claims);
+
+  it("splits due, claimed, UPI, cash and refunded, in rupees", () => {
+    expect(rows.map((r) => r.id)).toEqual(["a", "b", "c", "d", "r"]); // free and withdrawn-unpaid entries left out
+    expect(paymentTotals(rows)).toEqual({
+      due: { count: 1, rupees: 500 }, claimed: { count: 1, rupees: 500 }, upi: { count: 1, rupees: 500 },
+      cash: { count: 1, rupees: 500 }, refunded: { count: 1, rupees: 300 },
+    });
+  });
+
+  it("filters by state or mode and searches names and UTRs", () => {
+    expect(filterPayments(rows, "cash").map((r) => r.id)).toEqual(["d"]);
+    expect(filterPayments(rows, "claimed").map((r) => r.id)).toEqual(["b"]);
+    expect(filterPayments(rows, "all", "5123").map((r) => r.id)).toEqual(["c"]);
+    expect(filterPayments(rows, "all", "player a").map((r) => r.id)).toEqual(["a"]);
+  });
+
+  it("exports a ledger with amount, mode, VPA and UTR", () => {
+    const lines = paymentsCsv(ev, rows).replace("﻿", "").trim().split("\r\n");
+    expect(lines[0]).toBe("Category,Entry,Amount (INR),Status,Mode,Paid to UPI ID,UPI reference,Reported at");
+    expect(lines[3]).toBe("Open,Player c,500,Paid,UPI,smash@okhdfcbank,512345678901,2026-12-01 10:30");
+    expect(lines[4]).toBe("Open,Player d,500,Paid,Cash,,,");
+  });
+});
+
+import { announce, messageText, waLink } from "../notify";
+
+describe("announcements", () => {
+  const ev = { title: "Whitefield Open", slug: "whitefield-open-ab12", venue: "Smash Arena", startsAt: "2026-12-20T03:30:00Z" };
+
+  it("general info emails carry the organiser's message, through a stub transport, and are marked sent", async () => {
+    const rpcs: [string, Record<string, unknown>][] = [];
+    const queued = [{ id: "n1", email: "a@x.in", kind: "general_info", payload: { event: ev.title, slug: ev.slug, venue: ev.venue, category: "", entry: "Asha", court: null, at: null, opponent: null, message: "Parking at gate 2" } }];
+    const sb = { rpc: async (fn: string, args: Record<string, unknown>) => { rpcs.push([fn, args]); return { data: fn === "queue_message" ? queued : null, error: null }; } };
+    const outbox: string[] = [];
+    const told = await announce(sb, "ev1", "general_info", "Parking at gate 2", async (e) => { outbox.push(`${e.to}|${e.text}`); return { ok: true }; });
+    expect(told).toBe("Emailed 1 player.");
+    expect(outbox[0]).toMatch(/^a@x\.in\|Hi Asha,\n\nParking at gate 2/);
+    expect(rpcs.map(([fn]) => fn)).toEqual(["queue_message", "mark_notifications"]);
+  });
+
+  it("a refused send (stranger, draft) reports back and emails nobody", async () => {
+    const sb = { rpc: async () => ({ data: null, error: { message: "Only this event's organisers can send messages" } }) };
+    let sent = 0;
+    expect(await announce(sb, "ev1", "promotion", "Hello", async () => { sent++; return { ok: true }; })).toMatch(/organisers/);
+    const empty = { rpc: async () => ({ data: [], error: null }) };
+    expect(await announce(empty, "ev1", "general_info", "Hello", async () => { sent++; return { ok: true }; })).toMatch(/No one new/);
+    expect(sent).toBe(0);
+  });
+
+  it("WhatsApp templates link the public page; Indian numbers get +91", () => {
+    const t = messageText("fixtures_released", ev, "", "https://sportshunt.in");
+    expect(t).toContain("https://sportshunt.in/t/whitefield-open-ab12");
+    expect(waLink("hi", "98765 43210")).toBe("https://wa.me/919876543210?text=hi");
+    expect(waLink("hi", "+91 98765 43210")).toBe("https://wa.me/919876543210?text=hi");
+    expect(waLink("hi")).toBe("https://wa.me/?text=hi");
+  });
+});
+
+import { matchCounts } from "../overview";
+
+describe("fixtures counters", () => {
+  it("counts live, to play and done, without byes", () => {
+    const m = (status: string, b: string | null = "B") => ({ a: "A", b, status });
+    expect(matchCounts([m("live"), m("scheduled"), m("scheduled", BYE), m("done"), m("done")])).toEqual({ live: 1, scheduled: 1, done: 2 });
+  });
+});
+
+import { timeline } from "../timeline";
+
+describe("schedule timeline", () => {
+  it("places matches by court and minute, one lane per day, skipping byes and unscheduled ones", () => {
+    const m = (id: string, courtId: string | null, at: string | undefined, b = "B") => ({ id, courtId, at, status: "scheduled", a: "A", b, category: "Open", walkover: false });
+    const days = timeline([
+      m("1", "c1", "2026-12-20T03:30:00Z"), m("2", "c2", "2026-12-20T04:00:00Z"), m("3", "c1", "2026-12-21T03:30:00Z"),
+      m("4", "c1", undefined), m("5", "c2", "2026-12-20T05:00:00Z", BYE),
+    ], [{ id: "c1", name: "Court 1" }, { id: "c2", name: "Court 2" }], 25, BYE);
+    expect(days.map((d) => d.day)).toEqual(["2026-12-20", "2026-12-21"]);
+    expect(days[0].minutes).toBe(55); // 09:00 to 09:55
+    expect(days[0].courts.map((c) => c.blocks.map((b) => [b.id, b.left, b.width]))).toEqual([[["1", 0, 25]], [["2", 30, 25]]]);
   });
 });

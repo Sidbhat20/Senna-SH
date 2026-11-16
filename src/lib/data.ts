@@ -1,4 +1,6 @@
 // Reads from Supabase as the current user, so RLS decides what each visitor can see.
+import { cache } from "react";
+import { courtFor as scoringCourts } from "./courtFor";
 import type { Played } from "./fixtures/advance";
 import { BYE, type StageKind } from "./fixtures/types";
 import type { EntryType, Format, Scoring, Sport } from "./sports";
@@ -21,6 +23,7 @@ export type Category = {
   entryFee: number;
   status: Status;
   entryCount: number;
+  pendingCount: number; // entered but the fee isn't confirmed yet
   scoring: Scoring;
   bornOnOrAfter: string | null;
   bornOnOrBefore: string | null;
@@ -51,7 +54,7 @@ export type EventSummary = {
 
 export type EntryRow = {
   id: string; name: string; club: string; seed: number | null; status: "pending" | "confirmed" | "withdrawn";
-  checkedIn: boolean; idChecked: boolean; roster: string[]; paymentStatus: string;
+  checkedIn: boolean; idChecked: boolean; roster: string[]; paymentStatus: string; source: "online" | "offline";
 };
 export type DbMatch = Played & {
   id: string;
@@ -95,6 +98,7 @@ const toCategory = (c: CatRow): Category => ({
   id: c.id, name: c.name, format: c.format, groupCount: c.group_count ?? undefined, entryType: c.entry_type,
   teamSize: c.team_size, maxEntries: c.max_entries, entryFee: c.entry_fee, status: c.status,
   entryCount: c.entries.filter((e) => e.status !== "withdrawn").length,
+  pendingCount: c.entries.filter((e) => e.status === "pending").length,
   scoring: c.scoring === "goals" ? { kind: "goals" } : { kind: "games", bestOf: c.best_of, pointsTo: c.points_to, cap: c.points_cap },
   bornOnOrAfter: c.born_on_or_after, bornOnOrBefore: c.born_on_or_before,
 });
@@ -139,15 +143,25 @@ type MRow = {
   next_key: string | null; next_side: "a" | "b" | null; loser_next_key: string | null; loser_next_side: "a" | "b" | null;
 };
 
-export async function getEvent(slug: string): Promise<EventDetail | null> {
+/** One event with everything its pages show. Cached per request, so a layout and its page share one load. */
+export const getEvent = cache(loadEvent);
+
+async function loadEvent(slug: string): Promise<EventDetail | null> {
   const sb = await supabaseServer();
-  const { data: row } = await sb.from("events").select(EVENT_SELECT).eq("slug", slug).maybeSingle();
+  let { data: row } = await sb.from("events").select(EVENT_SELECT).eq("slug", slug).maybeSingle();
   if (!row) return null;
+  const r0 = row as EventRow;
+  // entries closed: free places still waiting on a fee (no cron needed); reload so counts are current
+  if (new Date(r0.reg_closes_at) < new Date() && r0.status !== "completed" && r0.status !== "cancelled") {
+    const { data: released } = await sb.rpc("release_unpaid_entries", { p_event: r0.id });
+    if (released) ({ data: row } = await sb.from("events").select(EVENT_SELECT).eq("slug", slug).maybeSingle());
+    if (!row) return null;
+  }
   const ev = toEvent(row as EventRow);
   const catIds = ev.categories.map((c) => c.id);
   const [entries, matches, courts, manage] = await Promise.all([
     catIds.length
-      ? sb.from("entry_names").select("id, category_id, name, club, seed, status, checked_in_at, id_checked, roster, payment_status").in("category_id", catIds)
+      ? sb.from("entry_names").select("id, category_id, name, club, seed, status, checked_in_at, id_checked, roster, payment_status, source").in("category_id", catIds)
           .order("seed", { nullsFirst: false }).order("created_at")
       : Promise.resolve({ data: [], error: null }),
     sb.from("matches").select("*").eq("event_id", ev.id).order("scheduled_at", { nullsFirst: false }).order("round").order("slot"),
@@ -157,10 +171,10 @@ export async function getEvent(slug: string): Promise<EventDetail | null> {
   if (entries.error || matches.error || courts.error) throw new Error("Could not load this tournament");
 
   type ERow = { id: string; category_id: string; name: string; club: string; seed: number | null; status: EntryRow["status"];
-    checked_in_at: string | null; id_checked: boolean; roster: string[]; payment_status: string };
+    checked_in_at: string | null; id_checked: boolean; roster: string[]; payment_status: string; source: EntryRow["source"] };
   const entryRows = (entries.data as ERow[]).map((e) => ({
     id: e.id, category_id: e.category_id, name: e.name, club: e.club, seed: e.seed, status: e.status,
-    checkedIn: !!e.checked_in_at, idChecked: e.id_checked, roster: e.roster ?? [], paymentStatus: e.payment_status,
+    checkedIn: !!e.checked_in_at, idChecked: e.id_checked, roster: e.roster ?? [], paymentStatus: e.payment_status, source: e.source,
   }));
   const name = new Map(entryRows.map((e) => [e.id, e.name]));
   const courtName = new Map((courts.data as Court[]).map((c) => [c.id, c.name]));
@@ -215,7 +229,7 @@ export async function getMatch(id: string) {
 export async function myEntries(ev: { categories: { id: string }[] }) {
   const sb = await supabaseServer();
   const { data: auth } = await sb.auth.getUser();
-  const byCategory = new Map<string, { id: string; status: string; paymentStatus: string; invite: string | null; canWithdraw: boolean }>();
+  const byCategory = new Map<string, { id: string; status: string; paymentStatus: string; paymentNote: string | null; invite: string | null; canWithdraw: boolean }>();
   if (!auth.user) return { loggedIn: false as const, byCategory };
   const catIds = ev.categories.map((c) => c.id);
   const { data: teams } = await sb.from("team_members").select("team_id").eq("user_id", auth.user.id);
@@ -227,7 +241,8 @@ export async function myEntries(ev: { categories: { id: string }[] }) {
   for (const r of rows ?? []) {
     const invite = r.team_id ? ((await sb.rpc("my_team_invite", { p_team: r.team_id })).data as string | null) : null;
     // players withdraw their own entry; for teams only the captain can (my_team_invite answers only for captains)
-    byCategory.set(r.category_id, { id: r.id, status: r.status, paymentStatus: r.payment_status, invite, canWithdraw: r.user_id === auth.user.id || invite !== null });
+    const paymentNote = r.payment_status === "unpaid" ? ((await sb.rpc("my_payment_note", { p_entry: r.id })).data as string | null) : null;
+    byCategory.set(r.category_id, { id: r.id, status: r.status, paymentStatus: r.payment_status, paymentNote, invite, canWithdraw: r.user_id === auth.user.id || invite !== null });
   }
   return { loggedIn: true as const, byCategory };
 }
@@ -254,12 +269,10 @@ export async function myScoring(): Promise<ScoringQueue[]> {
   const { data: auth } = await sb.auth.getUser();
   if (!auth.user) return [];
   const [{ data: officiating }, { data: organising }] = await Promise.all([
-    sb.from("officials").select("event_id, court_id").eq("user_id", auth.user.id).eq("role", "referee"),
+    sb.from("officials").select("event_id, court_id, role").eq("user_id", auth.user.id).in("role", ["referee", "co_organiser"]),
     sb.from("events").select("id").eq("organiser_id", auth.user.id).in("status", ["open", "live"]),
   ]);
-  const courtFor = new Map<string, string | null>(); // event id -> the court they score, or null for every court
-  for (const o of officiating ?? []) courtFor.set(o.event_id, o.court_id);
-  for (const e of organising ?? []) courtFor.set(e.id, null);
+  const courtFor = scoringCourts(officiating ?? [], organising ?? []); // event id -> the court they score, or null for every court
   if (!courtFor.size) return [];
   const eventIds = [...courtFor.keys()];
 
@@ -280,7 +293,7 @@ export async function myScoring(): Promise<ScoringQueue[]> {
   const courtName = new Map((courts.data ?? []).map((c) => [c.id, c.name as string]));
   const name = new Map((names.data ?? []).map((n) => [n.id, n.name as string]));
 
-  return (events.data ?? []).filter((e) => e.status !== "completed").map((e) => {
+  return (events.data ?? []).filter((e) => e.status !== "completed" && e.status !== "cancelled").map((e) => {
     const court = courtFor.get(e.id) ?? null;
     return {
       event: { id: e.id, slug: e.slug, title: e.title },
@@ -359,5 +372,16 @@ export async function paymentClaims(eventId: string) {
   const sb = await supabaseServer();
   const { data, error } = await sb.rpc("payment_claims", { p_event: eventId });
   if (error) throw new Error(error.message);
-  return new Map(((data ?? []) as { entry_id: string; payment_ref: string }[]).map((r) => [r.entry_id, r.payment_ref]));
+  return new Map(((data ?? []) as { entry_id: string; payment_ref: string; claimed_at: string | null }[])
+    .map((r) => [r.entry_id, { ref: r.payment_ref, claimedAt: r.claimed_at }]));
+}
+
+export type AudienceRow = { name: string; email: string | null; phone: string | null };
+
+/** Who an announcement would reach, with contacts for the WhatsApp list. Null when the viewer may not send it. */
+export async function messageAudience(eventId: string, kind: "fixtures_released" | "schedule_update" | "general_info" | "promotion") {
+  const sb = await supabaseServer();
+  const { data, error } = await sb.rpc("message_audience", { p_event: eventId, p_kind: kind });
+  if (error) return null;
+  return (data ?? []) as AudienceRow[];
 }

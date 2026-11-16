@@ -7,6 +7,9 @@ export type Send = (e: Email) => Promise<SendResult>;
 
 export const EMAIL_NOT_SET_UP = "Email isn't set up yet (add RESEND_API_KEY)";
 
+/** Whether emails actually go out (the key is set). Without it they queue with a clear reason. */
+export const emailConfigured = () => !!process.env.RESEND_API_KEY;
+
 export const sendEmail: Send = async ({ to, subject, text }) => {
   const key = process.env.RESEND_API_KEY;
   if (!key) return { ok: false, error: EMAIL_NOT_SET_UP };

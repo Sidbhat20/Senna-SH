@@ -8,7 +8,7 @@ import type { Icon, PlayOptions, Player } from './fun'
 type Props = PlayOptions & {
   icon: Icon
   replayOnHover?: boolean
-  label?: string // accessible name, the icon's name by default
+  label?: string // accessible name; without one the sticker is decorative and hidden from screen readers
   className?: string
   style?: CSSProperties
 }
@@ -31,8 +31,9 @@ export function Sticker({ icon, palette, loop, offset, enter, replayOnHover, lab
   return (
     <canvas
       ref={ref}
-      role="img"
-      aria-label={label ?? icon.name}
+      role={label ? 'img' : undefined}
+      aria-label={label || undefined}
+      aria-hidden={label ? undefined : true}
       className={className}
       style={{ display: 'block', width: '100%', aspectRatio: '1', ...style }}
       onPointerEnter={replayOnHover ? () => player.current?.replay() : undefined}
