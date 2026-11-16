@@ -304,3 +304,17 @@ describe("sport profiles", () => {
     expect(entryShape("football", "Open").entryType).toBe("team");
   });
 });
+
+import { safeNext } from "../safe-next";
+
+describe("safeNext (login redirects)", () => {
+  it("keeps same-site paths", () => {
+    expect(safeNext("/t/open-cup?c=1")).toBe("/t/open-cup?c=1");
+    expect(safeNext("/join/abc")).toBe("/join/abc");
+  });
+  it("rejects anything that could leave the site", () => {
+    for (const bad of ["//evil.com", "/\\evil.com", "/\\/evil.com", "https://evil.com", "evil.com", "/\tevil", "", null, undefined]) {
+      expect(safeNext(bad as string)).toBe("/");
+    }
+  });
+});

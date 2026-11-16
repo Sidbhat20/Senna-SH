@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { safeNext } from "@/lib/safe-next";
 import { currentUser } from "@/lib/supabase/server";
 import { LoginForms } from "./LoginForms";
 
@@ -7,7 +8,7 @@ export const metadata: Metadata = { title: "Log in" };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) {
   const { next: raw, error } = await searchParams;
-  const next = raw?.startsWith("/") && !raw.startsWith("//") ? raw : "/";
+  const next = safeNext(raw);
   if (await currentUser()) redirect(next);
 
   return (

@@ -1,8 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { safeNext } from "@/lib/safe-next";
 import { supabaseServer } from "@/lib/supabase/server";
-
-// Only allow same-site relative paths, so the login link can't bounce users to another site.
-const safeNext = (n: string | null) => (n && n.startsWith("/") && !n.startsWith("//") ? n : "/");
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;

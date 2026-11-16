@@ -89,7 +89,7 @@ async function playOut(category: string, scorer = ORG) {
 beforeAll(async () => {
   db = new PGlite();
   await db.exec(SUPABASE_STUB);
-  for (const f of (process.env.MIGRATIONS ?? "0001_init.sql,0002_events.sql,0003_posters.sql,0004_sports.sql").split(",")) {
+  for (const f of (process.env.MIGRATIONS ?? "0001_init.sql,0002_events.sql,0003_posters.sql,0004_sports.sql,0005_hardening.sql").split(",")) {
     await db.exec(readFileSync(new URL(`./migrations/${f}`, import.meta.url), "utf8"));
   }
   for (const [i, id] of U.entries()) {
@@ -308,4 +308,20 @@ describe("schema", () => {
       "select entry_a, entry_b from matches where category_id = $1 and round = 2", [category]);
     expect([final.entry_a, final.entry_b]).toContain(m.entry_b);
   });
+
+  it("hardening: dates of birth are unreadable; owners and entry identities can't be changed", async () => {
+    const { event, category } = await newCategory("knockout", "pair", 8, 0, { born_on_or_after: "2010-01-01" });
+    const id = await as(U[9], async () =>
+      (await one<{ id: string }>("select register_entry($1, null, 'Asha', '2012-01-01', '2012-02-02') as id", [category])).id);
+    await expect(as(null, () => q("select dob from entries where id = $1", [id]))).rejects.toThrow(/permission denied/);
+    await expect(as(U[3], () => q("select partner_dob from entries where id = $1", [id]))).rejects.toThrow(/permission denied/);
+    expect(await as(null, () => q("select id, partner_name from entries where id = $1", [id]))).toEqual([{ id, partner_name: "Asha" }]);
+
+    await expect(as(ORG, () => q("update events set organiser_id = $1 where id = $2", [U[3], event]))).rejects.toThrow(/permission denied/);
+    await as(ORG, () => q("update events set poster_url = 'https://example.com/x.jpg', status = 'open' where id = $1", [event]));
+    await expect(as(ORG, () => q("update entries set user_id = $1 where id = $2", [U[3], id]))).rejects.toThrow(/permission denied/);
+    await as(ORG, () => q("update entries set seed = 1, status = 'confirmed', payment_status = 'paid' where id = $1", [id]));
+    expect((await one("select seed from entries where id = $1", [id])).seed).toBe(1);
+  });
 });
+
