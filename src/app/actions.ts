@@ -14,6 +14,7 @@ import { capFor, FORMATS, LAUNCH_SPORTS, SPORT_DEFAULTS, type Format, type Sport
 import { readEntriesCsv } from "@/lib/csv-import";
 import { answersFrom, fieldKey, type RegField } from "@/lib/reg-fields";
 import { notify } from "@/lib/notify";
+import { validUpiId } from "@/lib/upi";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export type ActionState = { error?: string; ok?: string } | undefined;
@@ -465,4 +466,23 @@ export async function removeRegField(_: ActionState, form: FormData): Promise<Ac
   const sb = await supabaseServer();
   const err = await saveFields(sb, String(form.get("event")), (f) => f.filter((x) => x.key !== key));
   return err ? { error: err } : done(form.get("slug"), "Question removed. Earlier answers stay in the export.");
+}
+
+// ---------- Entry fees by UPI straight to the organiser ----------
+export async function setUpiId(_: ActionState, form: FormData): Promise<ActionState> {
+  const upi = str(form.get("upi"), 300);
+  if (upi && !validUpiId(upi)) return { error: "That doesn't look like a UPI ID. It's usually name@bank, like ravi@okhdfcbank." };
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("set_upi_id", { p_event: String(form.get("event")), p_upi: upi });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), upi ? "Saved. Players in paid categories now see a Pay with UPI button." : "UPI ID removed.");
+}
+
+export async function claimPayment(_: ActionState, form: FormData): Promise<ActionState> {
+  const ref = str(form.get("ref"), 40).replace(/\s+/g, "");
+  if (!/^[A-Za-z0-9]{6,30}$/.test(ref)) return { error: "Enter the UTR from your UPI app: the 12-digit reference shown after paying." };
+  const sb = await supabaseServer();
+  const { error } = await sb.rpc("claim_payment", { p_entry: String(form.get("entry")), p_ref: ref });
+  if (error) return { error: error.message };
+  return done(form.get("slug"), "Thanks. The organiser will check it and confirm your place.");
 }

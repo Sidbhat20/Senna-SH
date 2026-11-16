@@ -407,9 +407,9 @@ describe("CSV exports", () => {
   it("entries include payment and contacts for managers", () => {
     const csv = entriesCsv(ev, new Map([["e1", { email: "arjun@example.com", phone: "+919000000000" }]]));
     const lines = csv.replace("﻿", "").trim().split("\r\n");
-    expect(lines[0]).toBe("Category,Entry,Club,Seed,Status,Payment,Checked in,ID seen,Players,Email,Phone");
-    expect(lines[1]).toBe("Men's Singles,Arjun Rao,Smash,1,Confirmed,Paid,Yes,No,,arjun@example.com,'+919000000000");
-    expect(lines[2]).toBe("Men's Singles,Walk-in,,,Confirmed,Free,No,No,,,");
+    expect(lines[0]).toBe("Category,Entry,Club,Seed,Status,Payment,Checked in,ID seen,Players,Email,Phone,UPI reference");
+    expect(lines[1]).toBe("Men's Singles,Arjun Rao,Smash,1,Confirmed,Paid,Yes,No,,arjun@example.com,'+919000000000,");
+    expect(lines[2]).toBe("Men's Singles,Walk-in,,,Confirmed,Free,No,No,,,,");
   });
 
   it("order of play is by court then time, without byes", () => {
@@ -568,5 +568,22 @@ describe("results", () => {
   });
   it("nothing until the final is played", () => {
     expect(placings({ format: "knockout", entries: ids(4), matches: advance(knockout(ids(4)), {}) })).toEqual([]);
+  });
+});
+
+import { payRef, upiLink, validUpiId } from "../upi";
+
+describe("UPI to the organiser", () => {
+  it("builds a UPI link any app opens, with amount, payee and reference", () => {
+    const link = upiLink({ upiId: "ravi@okhdfcbank", payee: "Smash Arena", rupees: 500, note: "SH 3F9A2C1B Men's Singles" });
+    expect(link.startsWith("upi://pay?")).toBe(true);
+    const q = new URLSearchParams(link.split("?")[1]);
+    expect([q.get("pa"), q.get("pn"), q.get("am"), q.get("cu"), q.get("tn")]).toEqual(["ravi@okhdfcbank", "Smash Arena", "500.00", "INR", "SH 3F9A2C1B Men's Singles"]);
+    expect(link).not.toContain("+");
+  });
+  it("checks UPI IDs and makes short references", () => {
+    expect(["ravi@okhdfcbank", "smash.arena-1@ybl"].every(validUpiId)).toBe(true);
+    expect(["ravi", "ravi@", "@ybl", "ravi@ok hdfc", "ravi@123"].some(validUpiId)).toBe(false);
+    expect(payRef("3f9a2c1b-0000-4000-8000-000000000000")).toBe("SH 3F9A2C1B");
   });
 });

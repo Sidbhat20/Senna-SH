@@ -5,7 +5,7 @@ import { awardWalkover, callMatch, checkIn } from "@/app/actions";
 import { ActionForm } from "@/components/ActionForm";
 import { LiveRefresh } from "@/components/LiveRefresh";
 import { ageLimitText, time } from "@/components/ui";
-import { getEvent } from "@/lib/data";
+import { getEvent, paymentClaims } from "@/lib/data";
 import { BYE } from "@/lib/fixtures/types";
 
 export const metadata: Metadata = { title: "Desk", robots: { index: false } };
@@ -17,6 +17,7 @@ const SOON_MIN = 45; // matches starting within this many minutes are "due"
 export default async function Desk({ params, searchParams }: Props) {
   const ev = await getEvent((await params).slug);
   if (!ev || !ev.canManage) notFound();
+  const claims = await paymentClaims(ev.id);
   const q = ((await searchParams).q ?? "").trim().toLowerCase();
 
   const entries = ev.categories.flatMap((c) =>
@@ -92,7 +93,7 @@ export default async function Desk({ params, searchParams }: Props) {
               <div className="text-[14px] text-muted">
                 {e.category}
                 {e.club && `, ${e.club}`}
-                {e.status === "pending" && ", fee unpaid"}
+                {e.status === "pending" && (claims.get(e.id) ? `, says paid (UTR ${claims.get(e.id)})` : ", fee unpaid")}
                 {e.roster.length > 0 && `, ${e.roster.length} players`}
               </div>
             </div>

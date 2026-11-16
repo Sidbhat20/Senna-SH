@@ -1,4 +1,4 @@
-import { addCourt, addRegField, cancelEvent, closeAllEntries, removeRegField, renameCourt, setCategoryStatus, updateEvent } from "@/app/actions";
+import { addCourt, addRegField, setUpiId, cancelEvent, closeAllEntries, removeRegField, renameCourt, setCategoryStatus, updateEvent } from "@/app/actions";
 import { ActionForm } from "@/components/ActionForm";
 import { PosterUpload } from "@/components/PosterUpload";
 import type { EventDetail } from "@/lib/data";
@@ -86,6 +86,18 @@ export function EditPanel({ ev }: { ev: EventDetail }) {
             </Field>
             <button className={`${btn} bg-turf text-white hover:bg-turf-dark`}>Save details</button>
           </div>
+        </ActionForm>
+      </section>
+
+      <section aria-labelledby="upi">
+        <h2 id="upi" className="font-display text-3xl font-bold">Entry fees by UPI</h2>
+        <p className="max-w-prose text-muted">
+          Players in paid categories pay this UPI ID directly from GPay, PhonePe or Paytm, then send you their UTR. Check it in
+          your bank app and tap Mark paid. Leave it empty to collect fees at the desk only.
+        </p>
+        <ActionForm action={setUpiId} values={hidden} showOk className="mt-3 max-w-xl">
+          <input name="upi" defaultValue={ev.upiId ?? ""} placeholder="yourname@okhdfcbank" aria-label="UPI ID" className={`${box} mt-0 min-w-0 flex-1`} />
+          <button className={`${btn} bg-ink text-chalk`}>Save</button>
         </ActionForm>
       </section>
 

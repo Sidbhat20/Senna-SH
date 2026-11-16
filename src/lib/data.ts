@@ -44,6 +44,7 @@ export type EventSummary = {
   posterUrl: string | null;
   ageCheck: "self" | "desk";
   regFields: RegField[];
+  upiId: string | null;
   breakMinutes: number;
   categories: Category[];
 };
@@ -86,7 +87,7 @@ type CatRow = {
 };
 type EventRow = {
   id: string; slug: string; title: string; sport: Sport; venue: string; area: string; starts_at: string; reg_closes_at: string;
-  prize: string; rules: string[]; status: Status; organiser_id: string; match_minutes: number; break_minutes: number; poster_url: string | null; age_check: "self" | "desk"; reg_fields: RegField[];
+  prize: string; rules: string[]; status: Status; organiser_id: string; match_minutes: number; break_minutes: number; poster_url: string | null; age_check: "self" | "desk"; reg_fields: RegField[]; upi_id: string | null;
   organiser: { name: string } | null; categories: CatRow[];
 };
 
@@ -103,7 +104,7 @@ function toEvent(r: EventRow): EventSummary {
     id: r.id, slug: r.slug, title: r.title, sport: r.sport, venue: r.venue, area: r.area, startsAt: r.starts_at,
     regClosesAt: r.reg_closes_at, prize: r.prize, rules: r.rules, status: r.status,
     organiser: r.organiser?.name || "Organiser", organiserId: r.organiser_id,
-    matchMinutes: r.match_minutes, breakMinutes: r.break_minutes, posterUrl: r.poster_url, ageCheck: r.age_check, regFields: r.reg_fields ?? [],
+    matchMinutes: r.match_minutes, breakMinutes: r.break_minutes, posterUrl: r.poster_url, ageCheck: r.age_check, regFields: r.reg_fields ?? [], upiId: r.upi_id ?? null,
     categories: [...r.categories].sort((a, b) => a.sort - b.sort).map(toCategory),
   };
 }
@@ -214,19 +215,19 @@ export async function getMatch(id: string) {
 export async function myEntries(ev: { categories: { id: string }[] }) {
   const sb = await supabaseServer();
   const { data: auth } = await sb.auth.getUser();
-  const byCategory = new Map<string, { id: string; status: string; invite: string | null; canWithdraw: boolean }>();
+  const byCategory = new Map<string, { id: string; status: string; paymentStatus: string; invite: string | null; canWithdraw: boolean }>();
   if (!auth.user) return { loggedIn: false as const, byCategory };
   const catIds = ev.categories.map((c) => c.id);
   const { data: teams } = await sb.from("team_members").select("team_id").eq("user_id", auth.user.id);
   const teamIds = (teams ?? []).map((t) => t.team_id);
   const { data: rows } = catIds.length
-    ? await sb.from("entries").select("id, category_id, status, team_id, user_id").in("category_id", catIds).neq("status", "withdrawn")
+    ? await sb.from("entries").select("id, category_id, status, payment_status, team_id, user_id").in("category_id", catIds).neq("status", "withdrawn")
         .or(`user_id.eq.${auth.user.id}${teamIds.length ? `,team_id.in.(${teamIds.join(",")})` : ""}`)
     : { data: [] };
   for (const r of rows ?? []) {
     const invite = r.team_id ? ((await sb.rpc("my_team_invite", { p_team: r.team_id })).data as string | null) : null;
     // players withdraw their own entry; for teams only the captain can (my_team_invite answers only for captains)
-    byCategory.set(r.category_id, { id: r.id, status: r.status, invite, canWithdraw: r.user_id === auth.user.id || invite !== null });
+    byCategory.set(r.category_id, { id: r.id, status: r.status, paymentStatus: r.payment_status, invite, canWithdraw: r.user_id === auth.user.id || invite !== null });
   }
   return { loggedIn: true as const, byCategory };
 }
@@ -351,4 +352,12 @@ export async function entryAnswers(eventId: string) {
   const { data, error } = await sb.rpc("entry_answers", { p_event: eventId });
   if (error) throw new Error(error.message);
   return new Map(((data ?? []) as { entry_id: string; answers: Record<string, string> }[]).map((r) => [r.entry_id, r.answers]));
+}
+
+/** UPI references players submitted, by entry. Managers only: the database refuses everyone else. */
+export async function paymentClaims(eventId: string) {
+  const sb = await supabaseServer();
+  const { data, error } = await sb.rpc("payment_claims", { p_event: eventId });
+  if (error) throw new Error(error.message);
+  return new Map(((data ?? []) as { entry_id: string; payment_ref: string }[]).map((r) => [r.entry_id, r.payment_ref]));
 }

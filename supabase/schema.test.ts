@@ -645,5 +645,25 @@ describe("schema", () => {
     expect(await as(ORG, () => q("select answers from entry_answers($1) where entry_id = $2", [event, id])))
       .toEqual([{ answers: { tshirt: "M", joined: "2024-02-03" } }]);
   });
+
+  it("UPI: players report their UTR; only managers see it; the organiser confirms", async () => {
+    const { event, category } = await newCategory("knockout", "solo", 4, 500);
+    await expect(as(ORG, () => q("select set_upi_id($1, 'not a upi')", [event]))).rejects.toThrow(/check constraint/);
+    await expect(as(U[2], () => q("select set_upi_id($1, 'thief@ybl')", [event]))).rejects.toThrow(/organisers/);
+    await as(ORG, () => q("select set_upi_id($1, 'smash@okhdfcbank')", [event]));
+    const a = await register(U[1], category);
+
+    await expect(as(U[2], () => q("select claim_payment($1, '412345678901')", [a]))).rejects.toThrow(/your own entry/);
+    await expect(as(U[1], () => q("select claim_payment($1, '12')", [a]))).rejects.toThrow(/UTR/);
+    await as(U[1], () => q("select claim_payment($1, ' 412345678901 ')", [a]));
+    expect((await one("select status, payment_status from entries where id = $1", [a]))).toEqual({ status: "pending", payment_status: "claimed" });
+
+    await expect(as(null, () => q("select payment_ref from entries where id = $1", [a]))).rejects.toThrow(/permission denied/);
+    await expect(as(U[1], () => q("select * from payment_claims($1)", [event]))).rejects.toThrow(/organisers/);
+    expect(await as(ORG, () => q("select payment_ref from payment_claims($1)", [event]))).toEqual([{ payment_ref: "412345678901" }]);
+
+    await as(ORG, () => q("update entries set status = 'confirmed', payment_status = 'paid' where id = $1", [a]));
+    await expect(as(U[1], () => q("select claim_payment($1, '412345678999')", [a]))).rejects.toThrow(/doesn't have a fee waiting/);
+  });
 });
 

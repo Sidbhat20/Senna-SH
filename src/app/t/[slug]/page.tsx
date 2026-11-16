@@ -2,17 +2,18 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { moveMatch, rotateRefereeLink, updateEntry, withdrawEntry } from "@/app/actions";
+import { claimPayment, moveMatch, rotateRefereeLink, updateEntry, withdrawEntry } from "@/app/actions";
 import { Bracket } from "@/components/Bracket";
 import { ActionForm } from "@/components/ActionForm";
 import { LiveRefresh } from "@/components/LiveRefresh";
 import { PosterUpload } from "@/components/PosterUpload";
 import { Standings } from "@/components/Standings";
 import { ageLimitText, date, dateTime, feeRange, MatchRow, perEntry, scoringText, sportName, StatusPill, time } from "@/components/ui";
-import { FORMATS, getEvent, myEntries, refereeLinks, type CategoryDetail, type DbMatch, type EventDetail } from "@/lib/data";
+import { FORMATS, getEvent, myEntries, paymentClaims, refereeLinks, type CategoryDetail, type DbMatch, type EventDetail } from "@/lib/data";
 import { standings } from "@/lib/fixtures/standings";
 import { placeName, placings } from "@/lib/results";
 import { whatsappShare } from "@/lib/notify";
+import { payRef, upiLink } from "@/lib/upi";
 import { BYE } from "@/lib/fixtures/types";
 import { EditPanel, ist } from "./EditPanel";
 import { AddEntriesForm, CopyLink, DrawButton, RegisterForm, RescheduleButton, ImportEntriesForm } from "./Panels";
@@ -128,7 +129,7 @@ async function OrderOfPlay({ ev, href }: { ev: EventDetail; href: (m: DbMatch) =
   );
 }
 
-function ManageCategory({ ev, c }: { ev: EventDetail; c: CategoryDetail }) {
+function ManageCategory({ ev, c, claims }: { ev: EventDetail; c: CategoryDetail; claims: Map<string, string> }) {
   const groupStageDone = c.format === "groups_knockout" && c.matches.some((m) => m.stage === "group")
     && c.matches.filter((m) => m.stage === "group").every((m) => m.status === "done")
     && !c.matches.some((m) => m.stage === "knockout");
@@ -175,6 +176,9 @@ function ManageCategory({ ev, c }: { ev: EventDetail; c: CategoryDetail }) {
                       {e.name}
                       {e.club && <span className="text-muted">, {e.club}</span>}
                     </span>
+                    {claims.get(e.id) && e.status === "pending" && (
+                      <span className="tabular text-[13px] font-semibold text-turf-dark">Says paid, UTR {claims.get(e.id)}</span>
+                    )}
                     {e.status === "pending" && (
                       <ActionForm action={updateEntry} values={{ entry: e.id, slug: ev.slug, op: "paid" }}>
                         <button className="rounded-md border border-ink px-2 py-0.5 text-[14px] font-semibold">Mark paid</button>
@@ -292,6 +296,7 @@ export default async function EventPage({ params, searchParams }: Props) {
   if (!ev) notFound();
   const { c: catId, view } = await searchParams;
   const me = await myEntries(ev);
+  const claims = ev.canManage ? await paymentClaims(ev.id) : new Map<string, string>();
   const schedule = view === "schedule";
   const editing = view === "edit" && ev.canManage;
   const onCategory = !schedule && !editing;
@@ -402,7 +407,7 @@ export default async function EventPage({ params, searchParams }: Props) {
             {c.status === "locked" && " Entries are closed."}
             {c.status === "cancelled" && " This category is cancelled."}
           </p>
-          {ev.canManage && <div className="mt-6"><ManageCategory ev={ev} c={c} /></div>}
+          {ev.canManage && <div className="mt-6"><ManageCategory ev={ev} c={c} claims={claims} /></div>}
           <div className="mt-10 grid gap-12 lg:grid-cols-[1fr_18rem]">
             <div className="min-w-0"><CategoryView ev={ev} c={c} href={href} /></div>
             <aside className="space-y-8">
@@ -410,9 +415,34 @@ export default async function EventPage({ params, searchParams }: Props) {
                 <div className="rounded-xl border border-line bg-white p-5">
                   {mine ? (
                     <>
-                      <div className="font-display text-2xl font-bold">{mine.status === "pending" ? "Registered, payment due" : "You're in"}</div>
+                      <div className="font-display text-2xl font-bold">{mine.status !== "pending" ? "You're in" : mine.paymentStatus === "claimed" ? "Paid, awaiting confirmation" : "Registered, payment due"}</div>
                       {mine.status === "pending" && (
-                        <p className="mt-1 text-[15px] text-muted">Pay {perEntry(c).toLowerCase()} to the organiser. They&apos;ll confirm your place.</p>
+                        <div className="mt-2 space-y-3 text-[15px]">
+                          {mine.paymentStatus === "claimed" ? (
+                            <p className="text-muted">The organiser has your UPI reference and will confirm your place once they see the payment.</p>
+                          ) : ev.upiId ? (
+                            <>
+                              <a href={upiLink({ upiId: ev.upiId, payee: ev.organiser, rupees: c.entryFee, note: `${payRef(mine.id)} ${c.name}` })}
+                                className="block rounded-lg bg-turf px-5 py-3 text-center font-semibold text-white hover:bg-turf-dark">
+                                Pay ₹{c.entryFee.toLocaleString("en-IN")} with UPI
+                              </a>
+                              <p className="text-muted">
+                                On a computer? Pay <strong className="text-ink">₹{c.entryFee.toLocaleString("en-IN")}</strong> to{" "}
+                                <strong className="text-ink">{ev.upiId}</strong> with the note <strong className="text-ink">{payRef(mine.id)}</strong>.
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-muted">Pay {perEntry(c).toLowerCase()} to the organiser. They&apos;ll confirm your place.</p>
+                          )}
+                          {ev.upiId && (
+                            <ActionForm action={claimPayment} values={{ entry: mine.id, slug: ev.slug }} showOk>
+                              <input name="ref" inputMode="numeric" maxLength={40} required aria-label="UPI reference (UTR)"
+                                placeholder={mine.paymentStatus === "claimed" ? "Wrong UTR? Send it again" : "UTR from your UPI app"}
+                                className="min-w-0 flex-1 rounded-lg border border-line px-3 py-2 focus:border-ink focus:outline-none" />
+                              <button className="h-10 rounded-lg border border-ink px-3 font-semibold disabled:opacity-60">I&apos;ve paid</button>
+                            </ActionForm>
+                          )}
+                        </div>
                       )}
                       {mine.invite && (
                         <div className="mt-3">
