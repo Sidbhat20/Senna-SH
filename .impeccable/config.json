@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/components/Standings.tsx"
+        ],
+        "createdAt": "2026-11-15T12:41:03.598Z",
+        "reason": "Claude triage: border is the league-table qualification marker on table rows (top N go through), a sports-table convention, not a card accent"
+      }
+    ]
+  }
+}

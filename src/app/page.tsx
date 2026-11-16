@@ -1,103 +1,91 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Bracket } from "@/components/Bracket";
+import { EventRow } from "@/components/ui";
+import { featuredEvent, listEvents } from "@/lib/data";
 
-export default function Home() {
+const STEPS = [
+  { title: "Publish", body: "Pick a sport, a format and a date. Your tournament gets its own page to share on WhatsApp." },
+  { title: "Collect entries", body: "Captains register their team and invite players with a link. Solo players sign up themselves." },
+  { title: "Draw fixtures", body: "One tap seeds the bracket or league, byes included. Re-draw any time before the first match." },
+  { title: "Score live", body: "Referees update the score from their phone. Brackets and tables move on by themselves." },
+];
+
+export default async function Home() {
+  const [all, featured] = await Promise.all([listEvents(), featuredEvent()]);
+  const bracket = featured?.categories.find((c) => c.matches.some((m) => m.stage === "knockout"));
+  const open = all.filter((t) => t.status === "open");
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <>
+      <section className="mx-auto max-w-6xl px-4 pt-12 pb-10 sm:pt-16">
+        <div className="grid gap-8 md:grid-cols-[1.3fr_1fr] md:items-end">
+          <h1 className="font-display text-[clamp(3rem,8vw,6.5rem)] font-bold leading-[0.9] tracking-tight">
+            Local tournaments, scored live.
+          </h1>
+          <div className="max-w-md">
+            <p className="text-lg leading-relaxed text-muted">
+              Enter a Bangalore tournament in a few taps, or run your own. Fixtures draw themselves and referees score from
+              their phones, so everyone can follow every match.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link href="/tournaments" className="rounded-md bg-turf px-5 py-3 font-semibold text-white hover:bg-turf-dark">
+                Find a tournament
+              </Link>
+              <Link href="/organise/new" className="rounded-md border border-ink px-5 py-3 font-semibold hover:bg-ink hover:text-chalk">
+                Organise one
+              </Link>
+            </div>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+      </section>
+
+      {featured && bracket && (
+        <section className="mx-auto max-w-6xl px-4" aria-labelledby="featured">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="featured" className="font-display text-2xl font-semibold">
+              {featured.title}, {bracket.name}
+            </h2>
+            <Link href={`/t/${featured.slug}`} className="font-medium text-turf-dark underline-offset-4 hover:underline">
+              Full tournament
+            </Link>
+          </div>
+          <Bracket matches={bracket.matches} stage="knockout" />
+        </section>
+      )}
+
+      <section className="mx-auto mt-16 max-w-6xl px-4" aria-labelledby="open">
+        <h2 id="open" className="font-display text-3xl font-bold">Open for entries</h2>
+        {open.length ? (
+          <ul className="mt-2 divide-y divide-line">
+            {open.map((t) => <EventRow key={t.slug} t={t} />)}
+          </ul>
+        ) : (
+          <p className="mt-3 max-w-prose text-muted">
+            Nothing is taking entries right now. Run the first one: it takes two minutes to set up.
+          </p>
+        )}
+        <Link href="/tournaments" className="mt-4 inline-block font-medium text-turf-dark underline-offset-4 hover:underline">
+          See all tournaments
+        </Link>
+      </section>
+
+      <section className="mx-auto mt-20 max-w-6xl px-4" aria-labelledby="organise">
+        <h2 id="organise" className="max-w-xl font-display text-3xl font-bold">
+          Running a tournament? Stop managing it on a spreadsheet.
+        </h2>
+        <ol className="mt-8 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+          {STEPS.map((s, i) => (
+            <li key={s.title} className="border-t-2 border-ink pt-4">
+              <div className="tabular font-display text-4xl font-bold text-turf">{i + 1}</div>
+              <h3 className="mt-1 font-display text-xl font-semibold">{s.title}</h3>
+              <p className="mt-1 text-[15px] leading-relaxed text-muted">{s.body}</p>
+            </li>
+          ))}
+        </ol>
+        <Link href="/organise/new" className="mt-8 inline-block rounded-md bg-ink px-5 py-3 font-semibold text-chalk hover:bg-pitch">
+          Create a tournament
+        </Link>
+      </section>
+    </>
   );
 }
