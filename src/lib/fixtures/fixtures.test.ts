@@ -915,3 +915,19 @@ describe("tournament search", () => {
     expect(searchTerm("a".repeat(80)).length).toBe(60);
   });
 });
+
+import { safePosterUrl } from "../poster-url";
+
+describe("poster URLs", () => {
+  const sb = "https://abc.supabase.co";
+  it("keeps only files in our Supabase posters bucket", () => {
+    expect(safePosterUrl(`${sb}/storage/v1/object/public/posters/ev1/1.webp`, sb)).toBe(`${sb}/storage/v1/object/public/posters/ev1/1.webp`);
+    expect(safePosterUrl("http://169.254.169.254/latest/meta-data", sb)).toBeNull();
+    expect(safePosterUrl("https://evil.example/storage/v1/object/public/posters/x.png", sb)).toBeNull();
+    expect(safePosterUrl(`http://abc.supabase.co/storage/v1/object/public/posters/x.png`, sb)).toBeNull();
+    expect(safePosterUrl(`${sb}/storage/v1/object/public/posters/../../auth/v1/x`, sb)).toBeNull();
+    expect(safePosterUrl(`${sb}/storage/v1/object/public/other/x.png`, sb)).toBeNull();
+    expect(safePosterUrl("not a url", sb)).toBeNull();
+    expect(safePosterUrl(null, sb)).toBeNull();
+  });
+});

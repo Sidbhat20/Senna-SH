@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
+// Google sign-in shows only once it is enabled in Supabase (Authentication → Providers) and this is set to 1.
+const GOOGLE = process.env.NEXT_PUBLIC_GOOGLE_AUTH === "1";
 const input = "mt-1 line-input";
 
 export function LoginForms({ next }: { next: string }) {
@@ -26,7 +28,7 @@ export function LoginForms({ next }: { next: string }) {
 
   return (
     <div className="space-y-6">
-      <button
+      {GOOGLE && <button
         type="button"
         disabled={busy}
         onClick={() => run(() => supabaseBrowser().auth.signInWithOAuth({ provider: "google", options: { redirectTo: callback() } }))}
@@ -39,7 +41,7 @@ export function LoginForms({ next }: { next: string }) {
           <path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2A11 11 0 0 0 2.1 7.1L5.8 10c.9-2.6 3.3-4.6 6.2-4.6Z" />
         </svg>
         Continue with Google
-      </button>
+      </button>}
 
       <form
         className="border-t border-line pt-6"

@@ -2,6 +2,7 @@
 import { cache } from "react";
 import { courtFor as scoringCourts } from "./courtFor";
 import { searchTerm } from "./organise";
+import { safePosterUrl } from "./poster-url";
 import type { Played } from "./fixtures/advance";
 import { BYE, type StageKind } from "./fixtures/types";
 import type { EntryType, Format, Scoring, Sport } from "./sports";
@@ -110,7 +111,7 @@ function toEvent(r: EventRow): EventSummary {
     id: r.id, slug: r.slug, title: r.title, sport: r.sport, venue: r.venue, area: r.area, startsAt: r.starts_at,
     regClosesAt: r.reg_closes_at, prize: r.prize, rules: r.rules, status: r.status,
     organiser: r.organiser?.name || "Organiser", organiserId: r.organiser_id,
-    matchMinutes: r.match_minutes, breakMinutes: r.break_minutes, posterUrl: r.poster_url, ageCheck: r.age_check, regFields: r.reg_fields ?? [], upiId: r.upi_id ?? null,
+    matchMinutes: r.match_minutes, breakMinutes: r.break_minutes, posterUrl: safePosterUrl(r.poster_url), ageCheck: r.age_check, regFields: r.reg_fields ?? [], upiId: r.upi_id ?? null,
     categories: [...r.categories].sort((a, b) => a.sort - b.sort).map(toCategory),
   };
 }
