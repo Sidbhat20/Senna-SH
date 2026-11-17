@@ -36,7 +36,7 @@ export default async function PrintOrderOfPlay({ params }: { params: Promise<{ s
           if (!ms.length) return null;
           return (
             <section key={court.id} className="mt-6 break-inside-avoid-page">
-              <h2 className="border-b-2 border-ink pb-1 font-display text-2xl font-bold">{court.name}</h2>
+              <h2 className="border-b border-line pb-1 font-display text-2xl font-extrabold">{court.name}</h2>
               <table className="w-full text-left text-[15px]">
                 <thead className="text-[13px] text-muted">
                   <tr>

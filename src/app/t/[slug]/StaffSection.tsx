@@ -5,7 +5,7 @@ import { date } from "@/components/ui";
 import { eventStaff, type EventDetail } from "@/lib/data";
 import { CopyLink } from "./Panels";
 
-const btn = "h-10 rounded-lg px-3 text-[15px] font-semibold disabled:opacity-60";
+const btn = "h-11 rounded-full px-4 text-[15px] font-semibold disabled:opacity-60";
 const ROLE = { co_organiser: "Co-organiser", referee: "Referee" } as const;
 
 export async function StaffSection({ ev }: { ev: EventDetail }) {
@@ -14,7 +14,7 @@ export async function StaffSection({ ev }: { ev: EventDetail }) {
 
   return (
     <section aria-labelledby="staff">
-      <h2 id="staff" className="font-display text-3xl font-bold">Staff</h2>
+      <h2 id="staff" className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Staff</h2>
       <p className="max-w-prose text-muted">
         Co-organisers run everything you can, except deleting the tournament or changing its staff. Referees score their
         court; send them a court&apos;s link from{" "}
@@ -49,13 +49,13 @@ export async function StaffSection({ ev }: { ev: EventDetail }) {
       )}
 
       {isOwner && (
-        <div className="mt-6 max-w-2xl rounded-xl border border-line bg-white p-5">
-          <h3 className="font-display text-xl font-semibold">Invite a co-organiser</h3>
+        <div className="mt-6 max-w-2xl rounded-[6px] border border-line bg-surface p-5">
+          <h3 className="font-display text-xl font-bold">Invite a co-organiser</h3>
           <p className="text-[15px] text-muted">Each link works once and expires in 7 days. Send it to one person.</p>
           <ActionForm action={createStaffInvite} values={hidden} showOk className="mt-3">
             <input name="note" maxLength={80} placeholder="Who is it for? e.g. Ravi, desk" aria-label="Who the invite is for"
               className="min-w-0 flex-1 rounded-lg border border-line px-3 py-2 focus:border-ink focus:outline-none" />
-            <button className={`${btn} bg-ink text-chalk`}>Create invite link</button>
+            <button className={`${btn} bg-ink text-on-ink`}>Create invite link</button>
           </ActionForm>
           {invites.length > 0 && (
             <ul className="mt-4 space-y-3">

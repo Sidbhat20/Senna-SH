@@ -12,24 +12,24 @@ export default async function EntriesPage({ params, searchParams }: Props) {
   const rows: Row[] = cats.flatMap((c) => c.entryRows.filter((e) => e.status !== "withdrawn").map((e) => ({
     id: e.id, name: e.name, club: e.club, category: c.name, source: e.source, status: e.status, payment: e.paymentStatus, seed: e.seed,
   })));
-  const field = "h-10 rounded-lg border border-line bg-white px-3 text-[15px] focus:border-ink focus:outline-none";
+  const field = "line-input w-auto min-w-48 text-[15px]";
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="font-display text-3xl font-bold">Entries</h2>
+          <h2 className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Entries</h2>
           <p className="text-muted">{rows.length} {rows.length === 1 ? "entry" : "entries"}{cat ? ` in ${cat.name}` : ""}. Withdrawn entries are left out.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <form className="flex gap-2">
+          <form className="flex items-end gap-3">
             <select name="c" defaultValue={cat?.id ?? ""} aria-label="Category" className={field}>
               <option value="">All categories</option>
               {ev.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            <button className="h-10 rounded-lg bg-ink px-3 font-semibold text-chalk">Show</button>
+            <button className="h-11 rounded-full bg-ink px-5 font-semibold text-on-ink press">Show</button>
           </form>
-          <a href={`/t/${ev.slug}/export/entries`} download className="inline-flex h-10 items-center rounded-lg border border-ink px-3 font-semibold">Download all</a>
+          <a href={`/t/${ev.slug}/export/entries`} download className="inline-flex h-11 items-center rounded-lg border border-ink px-3 font-semibold">Download all</a>
         </div>
       </div>
 

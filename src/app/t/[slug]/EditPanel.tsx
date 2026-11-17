@@ -4,8 +4,8 @@ import { ActionForm } from "@/components/ActionForm";
 import { PosterUpload } from "@/components/PosterUpload";
 import type { Coupon, EventDetail } from "@/lib/data";
 
-const box = "mt-1 block w-full rounded-lg border border-line bg-white px-3 py-2.5 focus:border-ink focus:outline-none";
-const btn = "h-11 rounded-lg px-4 font-semibold disabled:opacity-60";
+const box = "mt-1 line-input";
+const btn = "h-11 rounded-full px-5 font-semibold disabled:opacity-60";
 
 /** An ISO timestamp as Bangalore date and time strings, for date/time inputs. */
 export function ist(iso: string) {
@@ -18,8 +18,8 @@ export function ist(iso: string) {
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
     <label className="block">
-      <span className="font-medium">{label}</span>
-      {hint && <span className="block text-[14px] text-muted">{hint}</span>}
+      <span className="block text-[14px] text-muted">{label}</span>
+      {hint && <span className="block text-[13px] text-muted/80">{hint}</span>}
       {children}
     </label>
   );
@@ -30,7 +30,7 @@ function Field({ label, children, hint }: { label: string; children: React.React
 export function Frozen({ ev }: { ev: EventDetail }) {
   if (ev.status !== "completed" && ev.status !== "cancelled") return null;
   return (
-    <p className="max-w-prose rounded-xl border border-line bg-white p-5">
+    <p className="max-w-prose rounded-[6px] border border-line bg-surface p-5">
       This tournament is {ev.status === "completed" ? "finished" : "cancelled"}, so its details can&apos;t change any more.
     </p>
   );
@@ -43,7 +43,7 @@ export function DetailsForm({ ev }: { ev: EventDetail }) {
   const hidden = { event: ev.id, slug: ev.slug };
   return (
     <section aria-labelledby="details">
-      <h2 id="details" className="font-display text-3xl font-bold">Details</h2>
+      <h2 id="details" className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Details</h2>
       <p className="text-muted">The sport and each category&apos;s format stay as published, so draws never change underneath players.</p>
       <ActionForm action={updateEvent} values={hidden} showOk className="mt-4 max-w-3xl">
         <div className="w-full space-y-5">
@@ -74,7 +74,7 @@ export function DetailsForm({ ev }: { ev: EventDetail }) {
             </Field>
           </div>
           <fieldset>
-            <legend className="font-medium">How you check ages</legend>
+            <legend className="text-[14px] text-muted">How you check ages</legend>
             <div className="mt-1 flex flex-wrap gap-4">
               <label className="flex items-center gap-2"><input type="radio" name="age_check" value="self" defaultChecked={ev.ageCheck === "self"} /> Players declare it</label>
               <label className="flex items-center gap-2"><input type="radio" name="age_check" value="desk" defaultChecked={ev.ageCheck === "desk"} /> We check ID at the desk</label>
@@ -83,7 +83,7 @@ export function DetailsForm({ ev }: { ev: EventDetail }) {
           <Field label="Rules" hint="One per line.">
             <textarea name="rules" rows={4} defaultValue={ev.rules.join("\n")} className={box} />
           </Field>
-          <button className={`${btn} bg-turf text-white hover:bg-turf-dark`}>Save details</button>
+          <button className={`${btn} chunky press bg-turf text-on-turf hover:bg-turf-dark`}>Save details</button>
         </div>
       </ActionForm>
     </section>
@@ -94,7 +94,7 @@ export function DetailsForm({ ev }: { ev: EventDetail }) {
 export function PosterSection({ ev }: { ev: EventDetail }) {
   return (
     <section aria-labelledby="poster">
-      <h2 id="poster" className="font-display text-3xl font-bold">Poster</h2>
+      <h2 id="poster" className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Poster</h2>
       <div className="mt-3"><PosterUpload eventId={ev.id} hasPoster={!!ev.posterUrl} /></div>
     </section>
   );
@@ -105,7 +105,7 @@ export function FeesSection({ ev }: { ev: EventDetail }) {
   const hidden = { event: ev.id, slug: ev.slug };
   return (
     <section aria-labelledby="upi">
-      <h2 id="upi" className="font-display text-3xl font-bold">Entry fees by UPI</h2>
+      <h2 id="upi" className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Entry fees by UPI</h2>
       <p className="max-w-prose text-muted">
         Players in paid categories pay this UPI ID directly from GPay, PhonePe or Paytm, then send you their UTR. Check it in
         your bank app and tap Mark paid. Leave it empty to collect fees at the desk only.
@@ -116,7 +116,7 @@ export function FeesSection({ ev }: { ev: EventDetail }) {
       </p>
       <ActionForm action={setUpiId} values={hidden} showOk className="mt-3 max-w-xl">
         <input name="upi" defaultValue={ev.upiId ?? ""} placeholder="yourname@okhdfcbank" aria-label="UPI ID" className={`${box} mt-0 min-w-0 flex-1`} />
-        <button className={`${btn} bg-ink text-chalk`}>Save</button>
+        <button className={`${btn} bg-ink text-on-ink`}>Save</button>
       </ActionForm>
     </section>
   );
@@ -127,7 +127,7 @@ export function QuestionsSection({ ev }: { ev: EventDetail }) {
   const hidden = { event: ev.id, slug: ev.slug };
   return (
     <section aria-labelledby="questions">
-      <h2 id="questions" className="font-display text-3xl font-bold">Registration questions</h2>
+      <h2 id="questions" className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Registration questions</h2>
       <p className="max-w-prose text-muted">Ask every player something extra, like a T-shirt size. Answers show only to organisers, in the entries download.</p>
       {ev.regFields.length > 0 && (
         <ul className="mt-3 max-w-2xl divide-y divide-line">
@@ -140,7 +140,7 @@ export function QuestionsSection({ ev }: { ev: EventDetail }) {
                 </span>
               </div>
               <ActionForm action={removeRegField} values={{ ...hidden, key: q.key }}>
-                <button className="h-10 rounded-lg px-3 text-[15px] font-semibold text-danger hover:bg-danger/10">Remove</button>
+                <button className="h-11 rounded-lg px-3 text-[15px] font-semibold text-danger hover:bg-danger/10">Remove</button>
               </ActionForm>
             </li>
           ))}
@@ -148,7 +148,7 @@ export function QuestionsSection({ ev }: { ev: EventDetail }) {
       )}
       {ev.regFields.length < 10 && (
         <ActionForm action={addRegField} values={hidden} showOk className="mt-3 max-w-2xl">
-          <div className="w-full space-y-3 rounded-xl border border-line bg-white p-4">
+          <div className="w-full space-y-3 rounded-[6px] border border-line bg-surface p-4">
             <input name="label" required maxLength={60} placeholder="Question, e.g. T-shirt size" aria-label="Question" className={`${box} mt-0`} />
             <fieldset className="flex flex-wrap gap-4">
               <legend className="sr-only">Kind of answer</legend>
@@ -158,7 +158,7 @@ export function QuestionsSection({ ev }: { ev: EventDetail }) {
             </fieldset>
             <input name="options" maxLength={400} placeholder="Options, separated by commas (for Pick from options): S, M, L, XL" aria-label="Options" className={`${box} mt-0`} />
             <label className="flex items-center gap-2"><input type="checkbox" name="required" value="yes" /> Players must answer</label>
-            <button className={`${btn} bg-ink text-chalk`}>Add question</button>
+            <button className={`${btn} bg-ink text-on-ink`}>Add question</button>
           </div>
         </ActionForm>
       )}
@@ -171,7 +171,7 @@ export function CourtsSection({ ev }: { ev: EventDetail }) {
   const hidden = { event: ev.id, slug: ev.slug };
   return (
     <section aria-labelledby="courts">
-      <h2 id="courts" className="font-display text-3xl font-bold">Courts</h2>
+      <h2 id="courts" className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Courts</h2>
       <p className="text-muted">Renaming keeps every match and referee link on that court. A new court gets its own referee link.</p>
       <ul className="mt-3 max-w-xl space-y-2">
         {ev.courts.map((c) => (
@@ -185,7 +185,7 @@ export function CourtsSection({ ev }: { ev: EventDetail }) {
       </ul>
       <ActionForm action={addCourt} values={hidden} showOk className="mt-3 max-w-xl">
         <input name="name" placeholder={`Court ${ev.courts.length + 1}`} maxLength={40} aria-label="New court name" className={`${box} mt-0 min-w-0 flex-1`} />
-        <button className={`${btn} bg-ink text-chalk`}>Add court</button>
+        <button className={`${btn} bg-ink text-on-ink`}>Add court</button>
       </ActionForm>
     </section>
   );
@@ -195,7 +195,7 @@ export function CourtsSection({ ev }: { ev: EventDetail }) {
 export function DownloadsSection({ ev }: { ev: EventDetail }) {
   return (
     <section aria-labelledby="downloads">
-      <h2 id="downloads" className="font-display text-3xl font-bold">Downloads</h2>
+      <h2 id="downloads" className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Downloads</h2>
       <p className="text-muted">Spreadsheets open in Excel or Google Sheets. Entries include each player&apos;s or captain&apos;s email and phone, so keep that file private.</p>
       <ul className="mt-3 flex flex-wrap gap-2">
         {[
@@ -205,7 +205,7 @@ export function DownloadsSection({ ev }: { ev: EventDetail }) {
         ].map(([label, href]) => (
           <li key={href}><a href={href} download className={`${btn} inline-flex items-center border border-ink`}>{label}</a></li>
         ))}
-        <li><a href={`/t/${ev.slug}/print`} className={`${btn} inline-flex items-center bg-ink text-chalk`}>Printable order of play</a></li>
+        <li><a href={`/t/${ev.slug}/print`} className={`${btn} inline-flex items-center bg-ink text-on-ink`}>Printable order of play</a></li>
       </ul>
     </section>
   );
@@ -216,7 +216,7 @@ export function DangerZone({ ev }: { ev: EventDetail }) {
   const hidden = { event: ev.id, slug: ev.slug };
   return (
     <section aria-labelledby="whole" className="max-w-xl space-y-6 rounded-xl border-2 border-danger/60 p-5">
-      <h2 id="whole" className="font-display text-2xl font-bold">Danger zone</h2>
+      <h2 id="whole" className="font-display text-2xl font-extrabold">Danger zone</h2>
       <div>
         <p className="text-[15px]">Stop new entries in every category. Draws can still happen.</p>
         <ActionForm action={closeAllEntries} values={hidden} showOk className="mt-2">
@@ -245,7 +245,7 @@ export function CouponsSection({ ev, coupons }: { ev: EventDetail; coupons: Coup
   const off = (c: Coupon) => (c.kind === "percent" ? `${c.amount}% off` : `₹${c.amount.toLocaleString("en-IN")} off`);
   return (
     <section aria-labelledby="coupons">
-      <h2 id="coupons" className="font-display text-3xl font-bold">Discount codes</h2>
+      <h2 id="coupons" className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Discount codes</h2>
       <p className="max-w-prose text-muted">Players type a code when they register, and the UPI amount drops to match. Codes stay private: only organisers see this list.</p>
       {coupons.length > 0 && (
         <ul className="mt-3 max-w-2xl divide-y divide-line">
@@ -263,7 +263,7 @@ export function CouponsSection({ ev, coupons }: { ev: EventDetail; coupons: Coup
                   </span>
                 </div>
                 <ConfirmAction action={deleteCoupon} values={{ ...hidden, coupon: c.id }} trigger="Remove"
-                  triggerClassName="h-10 rounded-lg px-3 text-[15px] font-semibold text-danger hover:bg-danger/10" confirmLabel={`Remove ${c.code}`}
+                  triggerClassName="h-11 rounded-lg px-3 text-[15px] font-semibold text-danger hover:bg-danger/10" confirmLabel={`Remove ${c.code}`}
                   title={`Remove ${c.code}?`} body="Nobody can use it from now on. Entries that already used it keep their discount." />
               </li>
             );
@@ -274,27 +274,27 @@ export function CouponsSection({ ev, coupons }: { ev: EventDetail; coupons: Coup
         <p className="mt-3 text-[15px] text-muted">Every category is free, so there&apos;s nothing to discount.</p>
       ) : (
         <ActionForm action={createCoupon} values={hidden} showOk className="mt-3 max-w-2xl">
-          <div className="grid w-full gap-3 rounded-xl border border-line bg-white p-4 sm:grid-cols-2">
-            <label><span className="font-medium">Code</span>
+          <div className="grid w-full gap-3 rounded-[6px] border border-line bg-surface p-4 sm:grid-cols-2">
+            <label><span className="block text-[14px] text-muted">Code</span>
               <input name="code" required maxLength={20} placeholder="EARLY20" autoComplete="off" className={`${box} uppercase`} /></label>
-            <fieldset><legend className="font-medium">Discount</legend>
+            <fieldset><legend className="text-[14px] text-muted">Discount</legend>
               <span className="mt-1 flex gap-2">
-                <input name="amount" required inputMode="numeric" placeholder="20" aria-label="Amount" className="block w-24 rounded-lg border border-line bg-white px-3 py-2.5 focus:border-ink focus:outline-none" />
+                <input name="amount" required inputMode="numeric" placeholder="20" aria-label="Amount" className="block w-24 rounded-lg border border-line bg-surface px-3 py-2.5 focus:border-ink focus:outline-none" />
                 <select name="kind" aria-label="Kind of discount" className={`${box} mt-0`} defaultValue="percent">
                   <option value="percent">% off</option><option value="flat">₹ off</option>
                 </select>
               </span>
             </fieldset>
-            <label><span className="font-medium">Category</span>
+            <label><span className="block text-[14px] text-muted">Category</span>
               <select name="category" className={box} defaultValue="">
                 <option value="">Any paid category</option>
                 {paid.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select></label>
-            <label><span className="font-medium">Uses allowed</span> <span className="text-[13px] text-muted">(empty for no limit)</span>
+            <label><span className="block text-[14px] text-muted">Uses allowed</span> <span className="text-[13px] text-muted">(empty for no limit)</span>
               <input name="max" inputMode="numeric" className={box} /></label>
-            <label><span className="font-medium">Last day</span> <span className="text-[13px] text-muted">(optional)</span>
+            <label><span className="block text-[14px] text-muted">Last day</span> <span className="text-[13px] text-muted">(optional)</span>
               <input name="expires" type="date" className={box} /></label>
-            <button className={`${btn} self-end bg-ink text-chalk`}>Create code</button>
+            <button className={`${btn} self-end bg-ink text-on-ink`}>Create code</button>
           </div>
         </ActionForm>
       )}

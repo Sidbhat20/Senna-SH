@@ -44,8 +44,8 @@ export default async function Desk({ params, searchParams }: Props) {
       </div>
 
       {due.length > 0 && (
-        <section className="mt-6 rounded-xl border-2 border-flood bg-white p-4" aria-labelledby="due">
-          <h2 id="due" className="font-display text-2xl font-bold">Due on court, not checked in</h2>
+        <section className="mt-6 rounded-xl border-2 border-flood bg-surface p-4" aria-labelledby="due">
+          <h2 id="due" className="font-display text-2xl font-extrabold">Due on court, not checked in</h2>
           <p className="text-[15px] text-muted">Starting in the next {SOON_MIN} minutes. Call them, or award the match if they don&apos;t turn up.</p>
           <ul className="mt-3 divide-y divide-line">
             {due.map((m) => (
@@ -62,7 +62,7 @@ export default async function Desk({ params, searchParams }: Props) {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <ActionForm action={callMatch} values={{ event: ev.id, match: m.id, slug: ev.slug }} showOk>
-                    <button className="rounded-lg bg-ink px-3 py-1.5 text-[14px] font-semibold text-chalk">Email both players</button>
+                    <button className="rounded-lg bg-ink px-3 py-1.5 text-[14px] font-semibold text-on-ink">Email both players</button>
                   </ActionForm>
                   {(["a", "b"] as const).map((s) => (
                     <ActionForm key={s} action={awardWalkover} values={{ match: m.id, winner: s, slug: ev.slug }}>
@@ -81,7 +81,7 @@ export default async function Desk({ params, searchParams }: Props) {
       <form method="get" className="mt-6" role="search">
         <label htmlFor="q" className="sr-only">Find a player or team</label>
         <input id="q" name="q" defaultValue={q} placeholder="Find a player, pair or team" autoFocus
-          className="block w-full rounded-lg border border-line bg-white px-4 py-3 text-lg focus:border-ink focus:outline-none" />
+          className="block w-full rounded-lg border border-line bg-surface px-4 py-3 text-lg focus:border-ink focus:outline-none" />
       </form>
 
       <ul className="mt-4 divide-y divide-line">
@@ -108,11 +108,11 @@ export default async function Desk({ params, searchParams }: Props) {
               <div className="flex gap-2">
                 {e.aged && ev.ageCheck === "desk" && (
                   <ActionForm action={checkIn} values={{ entry: e.id, present: "1", id: "1", slug: ev.slug }}>
-                    <button className="h-11 rounded-lg bg-turf px-4 font-semibold text-white">Check in + ID seen</button>
+                    <button className="h-11 rounded-lg chunky press bg-turf px-4 font-semibold text-on-turf">Check in + ID seen</button>
                   </ActionForm>
                 )}
                 <ActionForm action={checkIn} values={{ entry: e.id, present: "1", slug: ev.slug }}>
-                  <button className={`h-11 rounded-lg px-4 font-semibold ${e.aged && ev.ageCheck === "desk" ? "border border-ink" : "bg-turf text-white"}`}>
+                  <button className={`h-11 rounded-lg px-4 font-semibold ${e.aged && ev.ageCheck === "desk" ? "border border-ink" : "chunky press bg-turf text-on-turf"}`}>
                     Check in
                   </button>
                 </ActionForm>

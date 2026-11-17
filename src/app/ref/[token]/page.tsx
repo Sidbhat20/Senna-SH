@@ -36,7 +36,7 @@ export default async function RefereeInvite({ params, searchParams }: Props) {
             The organiser invited you to score matches. After you accept, your matches show up on your scoring page.
           </p>
           <form action={join}>
-            <button className="mt-6 h-12 w-full rounded-lg bg-turf px-5 font-semibold text-white hover:bg-turf-dark">Accept and start scoring</button>
+            <button className="mt-6 h-12 w-full rounded-lg chunky press bg-turf px-5 font-semibold text-on-turf hover:bg-turf-dark">Accept and start scoring</button>
           </form>
         </>
       )}

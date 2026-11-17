@@ -39,15 +39,15 @@ export async function OrderOfPlay({ ev, href }: { ev: EventDetail; href: (m: DbM
   return (
     <div className="space-y-8">
       {ev.canManage && (
-        <section className="rounded-xl border-2 border-ink p-5" aria-labelledby="run">
-          <h2 id="run" className="font-display text-2xl font-bold">Running late or early?</h2>
+        <section className="rounded-[6px] border border-line bg-surface p-5" aria-labelledby="run">
+          <h2 id="run" className="font-display text-2xl font-extrabold">Running late or early?</h2>
           <p className="mt-1 max-w-prose text-muted">
             Re-planning keeps live matches where they are and moves everything still to play to the next free court from now.
           </p>
           <div className="mt-4"><RescheduleButton event={ev.id} slug={ev.slug} /></div>
           {links.length > 0 && (
             <>
-              <h3 className="mt-6 font-display text-xl font-semibold">Referee links</h3>
+              <h3 className="mt-6 font-display text-xl font-bold">Referee links</h3>
               <p className="text-[15px] text-muted">Send a court&apos;s link to its referee. They log in once and can score only that court. A new link stops the old one from working; referees who already joined keep scoring.</p>
               <div className="mt-3 space-y-2">
                 {[...links].sort((a, b) => (a.court_id ? 1 : 0) - (b.court_id ? 1 : 0) || (ev.courts.findIndex((c) => c.id === a.court_id) - ev.courts.findIndex((c) => c.id === b.court_id)))
@@ -79,7 +79,7 @@ export async function OrderOfPlay({ ev, href }: { ev: EventDetail; href: (m: DbM
             if (!ms.length) return null;
             return (
               <section key={court.id}>
-                <h3 className="border-b-2 border-ink pb-1 font-display text-2xl font-bold">{court.name}</h3>
+                <h3 className="border-b border-line pb-1 font-display text-2xl font-extrabold">{court.name}</h3>
                 <ol className="divide-y divide-line">
                   {ms.map((m) => (
                     <li key={m.id} className="grid grid-cols-[3.75rem_1fr] gap-x-3">
@@ -92,7 +92,7 @@ export async function OrderOfPlay({ ev, href }: { ev: EventDetail; href: (m: DbM
                             <fieldset className="flex w-full flex-wrap gap-1.5">
                               <legend className="sr-only">Court</legend>
                               {ev.courts.map((c) => (
-                                <label key={c.id} className="cursor-pointer rounded-full border border-line px-2.5 py-1 has-[:checked]:border-ink has-[:checked]:bg-ink has-[:checked]:text-chalk">
+                                <label key={c.id} className="cursor-pointer rounded-full border border-line px-2.5 py-1 has-[:checked]:border-ink has-[:checked]:bg-ink has-[:checked]:text-on-ink">
                                   <input type="radio" name="court" value={c.id} defaultChecked={c.id === m.courtId} className="sr-only" />
                                   {c.name}
                                 </label>
@@ -100,7 +100,7 @@ export async function OrderOfPlay({ ev, href }: { ev: EventDetail; href: (m: DbM
                             </fieldset>
                             <input type="date" name="date" defaultValue={ist(m.at!).date} aria-label="Date" className="rounded-lg border border-line px-2 py-1" />
                             <input type="time" name="time" defaultValue={ist(m.at!).time} step={300} aria-label="Start time" className="rounded-lg border border-line px-2 py-1" />
-                            <button className="rounded-lg bg-ink px-3 py-1.5 font-semibold text-chalk disabled:opacity-60">Move</button>
+                            <button className="rounded-lg bg-ink px-3 py-1.5 font-semibold text-on-ink disabled:opacity-60">Move</button>
                           </ActionForm>
                         </details>
                       )}
@@ -126,8 +126,8 @@ export function ManageCategory({ ev, c, claims }: { ev: EventDetail; c: Category
   const active = c.entryRows.filter((e) => e.status !== "withdrawn");
 
   return (
-    <section className="rounded-xl border-2 border-ink p-5" aria-labelledby="manage">
-      <h2 id="manage" className="font-display text-2xl font-bold">Run {c.name}</h2>
+    <section className="rounded-[6px] border border-line bg-surface p-5" aria-labelledby="manage">
+      <h2 id="manage" className="font-display text-2xl font-extrabold">Run {c.name}</h2>
       {groupStageDone ? (
         <>
           <p className="mt-1 text-muted">Every group match is done. Draw the knockout from the top two of each group.</p>
@@ -156,7 +156,7 @@ export function ManageCategory({ ev, c, claims }: { ev: EventDetail; c: Category
                   <li key={e.id} className="flex flex-wrap items-center gap-2 py-1.5 text-[15px]">
                     <ActionForm action={updateEntry} values={{ entry: e.id, slug: ev.slug, op: "seed" }} className="shrink-0">
                       <input name="seed" defaultValue={e.seed ?? ""} inputMode="numeric" aria-label={`Seed for ${e.name}`} placeholder="–"
-                        className="tabular w-10 rounded-md border border-line bg-white px-1.5 py-1 text-center" />
+                        className="tabular w-10 rounded-md border border-line bg-surface px-1.5 py-1 text-center" />
                       <button className="sr-only">Save seed</button>
                     </ActionForm>
                     <span className="min-w-0 flex-1 truncate">
@@ -168,18 +168,18 @@ export function ManageCategory({ ev, c, claims }: { ev: EventDetail; c: Category
                     )}
                     {e.status === "pending" && (
                       <ActionForm action={updateEntry} values={{ entry: e.id, slug: ev.slug, op: "paid" }}>
-                        <button className="rounded-md border border-ink px-2 py-0.5 text-[14px] font-semibold">Mark paid</button>
+                        <button className="inline-flex min-h-11 items-center rounded-md border border-ink px-2.5 text-[14px] font-semibold">Mark paid</button>
                       </ActionForm>
                     )}
                     {claims.get(e.id) && e.status === "pending" && (
                       <ActionForm action={rejectPayment} values={{ entry: e.id, slug: ev.slug }}>
                         <input name="reason" maxLength={200} aria-label={`Why reject ${e.name}'s payment`} placeholder="Reason (optional)"
-                          className="w-36 rounded-md border border-line bg-white px-2 py-0.5 text-[14px]" />
-                        <button className="rounded-md border border-danger px-2 py-0.5 text-[14px] font-semibold text-danger hover:bg-danger/10">Reject</button>
+                          className="w-36 rounded-md border border-line bg-surface px-2 py-0.5 text-[14px]" />
+                        <button className="inline-flex min-h-11 items-center rounded-md border border-danger px-2.5 text-[14px] font-semibold text-danger hover:bg-danger/10">Reject</button>
                       </ActionForm>
                     )}
                     <ConfirmAction action={updateEntry} values={{ entry: e.id, slug: ev.slug, op: "remove" }} trigger="Remove"
-                      triggerClassName="rounded-md px-2 py-0.5 text-[14px] text-danger hover:bg-danger/10" confirmLabel="Remove entry"
+                      triggerClassName="inline-flex min-h-11 items-center rounded-md px-2.5 text-[14px] text-danger hover:bg-danger/10" confirmLabel="Remove entry"
                       title={`Remove ${e.name}?`} body="They lose their place in this category. Any fee they paid is between you and them." />
                   </li>
                 ))}
@@ -204,15 +204,15 @@ export function CategoryView({ ev, c, href }: { ev: EventDetail; c: CategoryDeta
   return (
     <div className="space-y-10">
       {results.length > 0 && (
-        <section aria-labelledby={`results-${c.id}`} className="overflow-hidden rounded-xl border border-line bg-white">
-          <h2 id={`results-${c.id}`} className="bg-pitch px-6 py-3 font-display text-xl font-semibold text-chalk">{c.name} results</h2>
+        <section aria-labelledby={`results-${c.id}`} className="overflow-hidden rounded-[6px] chunky bg-surface">
+          <h2 id={`results-${c.id}`} className="border-b border-line bg-flood px-6 py-3 font-display text-xl font-extrabold text-on-flood">{c.name} results</h2>
           <ol className="divide-y divide-line">
             {results.map((r) => (
               <li key={`${r.place}-${r.name}`} className={`flex items-baseline gap-4 px-6 py-3 ${r.place === 1 ? "bg-pitch/5" : ""}`}>
                 <span className="tabular w-20 shrink-0 font-display text-lg font-bold">
                   {placeName(r.place, results.filter((x) => x.place === r.place).length > 1)}
                 </span>
-                <span className={r.place === 1 ? "font-display text-2xl font-bold" : "text-lg"}>{r.name}</span>
+                <span className={r.place === 1 ? "font-display text-2xl font-extrabold" : "text-lg"}>{r.name}</span>
               </li>
             ))}
           </ol>
@@ -223,7 +223,7 @@ export function CategoryView({ ev, c, href }: { ev: EventDetail; c: CategoryDeta
       )}
       {c.matches.length === 0 && (
         <section>
-          <h2 className="font-display text-3xl font-bold">Fixtures</h2>
+          <h2 className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Fixtures</h2>
           <p className="mt-2 max-w-prose text-muted">
             The draw happens after entries close on {date(ev.regClosesAt)}. Your first opponent, court and time will show up here.
           </p>
@@ -231,7 +231,7 @@ export function CategoryView({ ev, c, href }: { ev: EventDetail; c: CategoryDeta
       )}
       {(c.format === "knockout" || c.format === "double_elim") && c.matches.length > 0 && (
         <section className="space-y-6">
-          <h2 className="font-display text-3xl font-bold">Bracket</h2>
+          <h2 className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Bracket</h2>
           {c.format === "knockout" ? (
             <Bracket matches={c.matches} stage="knockout" hrefFor={bracketHref} />
           ) : (
@@ -249,11 +249,11 @@ export function CategoryView({ ev, c, href }: { ev: EventDetail; c: CategoryDeta
       {c.format === "league" && c.matches.length > 0 && (
         <>
           <section>
-            <h2 className="mb-3 font-display text-3xl font-bold">Table</h2>
+            <h2 className="mb-3 font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Table</h2>
             <Standings rows={standings(c.entries, c.matches)} qualify={1} />
           </section>
           <section>
-            <h2 className="mb-4 font-display text-3xl font-bold">Fixtures</h2>
+            <h2 className="mb-4 font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Fixtures</h2>
             <Fixtures matches={c.matches} by={(m) => `Round ${m.round}`} href={href} />
           </section>
         </>
@@ -262,12 +262,12 @@ export function CategoryView({ ev, c, href }: { ev: EventDetail; c: CategoryDeta
         <>
           {c.matches.some((m) => m.stage === "knockout") && (
             <section className="space-y-4">
-              <h2 className="font-display text-3xl font-bold">Knockout</h2>
+              <h2 className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Knockout</h2>
               <Bracket matches={c.matches} stage="knockout" hrefFor={bracketHref} />
             </section>
           )}
           <section>
-            <h2 className="font-display text-3xl font-bold">Groups</h2>
+            <h2 className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Groups</h2>
             <p className="mt-1 text-muted">Top two in each group go through to the knockout.</p>
             <div className="mt-5 grid gap-8 md:grid-cols-2">
               {Object.entries(c.groups).sort().map(([g, entries]) => (
@@ -276,7 +276,7 @@ export function CategoryView({ ev, c, href }: { ev: EventDetail; c: CategoryDeta
             </div>
           </section>
           <section>
-            <h2 className="mb-4 font-display text-3xl font-bold">Group fixtures</h2>
+            <h2 className="mb-4 font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Group fixtures</h2>
             <Fixtures matches={c.matches.filter((m) => m.stage === "group")} by={(m) => `Group ${m.group}, round ${m.round}`} href={href} />
           </section>
         </>

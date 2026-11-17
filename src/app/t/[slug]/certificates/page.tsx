@@ -27,7 +27,7 @@ export default async function Certificates({ params, searchParams }: Props) {
       {results.map((r) => (
         <article key={`${r.place}-${r.name}`}
           className="mt-8 flex min-h-[60vh] flex-col items-center justify-center rounded-xl border-4 border-double border-pitch p-10 text-center print:mt-0 print:min-h-screen print:break-after-page print:rounded-none">
-          <p className="font-display text-xl font-semibold tracking-wide text-turf-dark">Certificate of achievement</p>
+          <p className="font-display text-xl font-bold tracking-wide text-turf-dark">Certificate of achievement</p>
           <p className="mt-8 text-lg text-muted">This certifies that</p>
           <p className="mt-2 font-display text-5xl font-bold">{r.name}</p>
           <p className="mt-6 text-lg">

@@ -26,7 +26,7 @@ export function PosterUpload({ eventId, hasPoster }: { eventId: string; hasPoste
       <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" tabIndex={-1}
         onChange={(e) => pick(e.target.files?.[0])} aria-hidden />
       <button type="button" disabled={busy} onClick={() => input.current?.click()}
-        className="rounded-lg border border-ink bg-white px-3 py-2 text-[15px] font-semibold disabled:opacity-60">
+        className="rounded-lg border border-ink bg-surface px-3 py-2 text-[15px] font-semibold disabled:opacity-60">
         {busy ? "Uploading…" : hasPoster ? "Change poster" : "Add a poster"}
       </button>
       {error && <p role="alert" className="mt-2 text-[14px] text-danger">{error}</p>}

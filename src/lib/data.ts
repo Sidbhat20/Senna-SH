@@ -1,6 +1,7 @@
 // Reads from Supabase as the current user, so RLS decides what each visitor can see.
 import { cache } from "react";
 import { courtFor as scoringCourts } from "./courtFor";
+import { searchTerm } from "./organise";
 import type { Played } from "./fixtures/advance";
 import { BYE, type StageKind } from "./fixtures/types";
 import type { EntryType, Format, Scoring, Sport } from "./sports";
@@ -115,7 +116,7 @@ function toEvent(r: EventRow): EventSummary {
 }
 
 export const PAGE_SIZE = 20;
-export type ListFilter = { status?: Status; sport?: Sport; page?: number };
+export type ListFilter = { status?: Status; sport?: Sport; page?: number; q?: string };
 
 /**
  * Public list, one page at a time. Without a status filter it shows what's coming up or under way (soonest first);
@@ -128,6 +129,8 @@ export async function listEvents(f: ListFilter = {}): Promise<{ events: EventSum
   let q = sb.from("events").select(EVENT_SELECT);
   q = f.status ? q.eq("status", f.status) : q.in("status", ["open", "locked", "live"]);
   if (f.sport) q = q.eq("sport", f.sport);
+  const term = searchTerm(f.q);
+  if (term) q = q.or(`title.ilike.%${term}%,venue.ilike.%${term}%,area.ilike.%${term}%`);
   const { data, error } = await q
     .order("starts_at", { ascending: !finished })
     .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE); // one extra row tells us whether there's another page

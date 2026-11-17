@@ -13,8 +13,8 @@ const CARDS: { kind: Kind; title: string; blurb: string; own: boolean }[] = [
   { kind: "general_info", title: "General info", blurb: "Anything else everyone entered should know: parking, shuttles, what to bring.", own: true },
   { kind: "promotion", title: "Promote to past players", blurb: "Players from your earlier tournaments who haven't entered this one. Only you, the owner, can send this.", own: true },
 ];
-const box = "block w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-ink focus:outline-none";
-const btn = "h-10 rounded-lg px-3 text-[15px] font-semibold disabled:opacity-60";
+const box = "line-input";
+const btn = "h-11 rounded-full px-4 text-[15px] font-semibold disabled:opacity-60";
 
 function Card({ ev, kind, title, blurb, own, people, email }: (typeof CARDS)[number] & { ev: EventDetail; people: AudienceRow[]; email: boolean }) {
   const withEmail = people.filter((p) => p.email).length;
@@ -25,15 +25,15 @@ function Card({ ev, kind, title, blurb, own, people, email }: (typeof CARDS)[num
   const values = { event: ev.id, slug: ev.slug, kind };
   const id = `msg-${kind}`;
   return (
-    <section aria-labelledby={id} className="rounded-xl border border-line bg-white p-5">
+    <section aria-labelledby={id} className="rounded-[6px] border border-line bg-surface p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 id={id} className="font-display text-2xl font-bold">{title}</h3>
+        <h3 id={id} className="font-display text-2xl font-extrabold">{title}</h3>
         <span className="tabular text-[14px] text-muted">{people.length} {people.length === 1 ? "person" : "people"}, {withEmail} with email, {phones.length} with a phone</span>
       </div>
       <p className="mt-1 max-w-prose text-[15px] text-muted">{blurb}</p>
       <details className="mt-3 text-[14px]">
         <summary className="cursor-pointer font-semibold">Preview the email</summary>
-        <div className="mt-2 rounded-lg border border-line bg-chalk p-3">
+        <div className="mt-2 rounded-lg border border-line bg-bg p-3">
           <div className="font-semibold">{preview.subject}</div>
           <pre className="mt-2 whitespace-pre-wrap font-sans">{preview.text}</pre>
         </div>
@@ -49,12 +49,12 @@ function Card({ ev, kind, title, blurb, own, people, email }: (typeof CARDS)[num
             ) : (
               <ActionForm action={sendAnnouncement} values={values} showOk className="gap-y-2">
                 <textarea name="message" required minLength={5} maxLength={1000} rows={3} aria-label="Message" placeholder="Parking is at gate 2. Bring your own shuttles." className={box} />
-                <button className={`${btn} mt-2 bg-ink text-chalk`}>Email {withEmail} {withEmail === 1 ? "player" : "players"}</button>
+                <button className={`${btn} mt-2 bg-ink text-on-ink`}>Email {withEmail} {withEmail === 1 ? "player" : "players"}</button>
               </ActionForm>
             )
           ) : (
             <ActionForm action={sendAnnouncement} values={values} showOk>
-              <button className={`${btn} bg-ink text-chalk`}>Email {withEmail} {withEmail === 1 ? "player" : "players"}</button>
+              <button className={`${btn} bg-ink text-on-ink`}>Email {withEmail} {withEmail === 1 ? "player" : "players"}</button>
             </ActionForm>
           )}
           {!email && <p className="text-[14px] text-muted">Email isn&apos;t set up on this site yet, so emails are queued but not sent. WhatsApp works now.</p>}
@@ -62,7 +62,7 @@ function Card({ ev, kind, title, blurb, own, people, email }: (typeof CARDS)[num
             <h4 className="font-semibold">WhatsApp</h4>
             <p className="text-[14px] text-muted">Opens WhatsApp on your phone with the message filled in. {own && "Type your message in WhatsApp after the first line."}</p>
             <div className="mt-2 flex flex-wrap gap-2">
-              <a href={waLink(wa)} target="_blank" rel="noopener noreferrer" className={`${btn} inline-flex items-center bg-turf text-white hover:bg-turf-dark`}>Open WhatsApp</a>
+              <a href={waLink(wa)} target="_blank" rel="noopener noreferrer" className={`${btn} inline-flex items-center chunky press bg-turf text-on-turf hover:bg-turf-dark`}>Open WhatsApp</a>
               <CopyText text={wa} label="Copy message" className={`${btn} border border-ink`} />
               {phones.length > 0 && <CopyText text={phones.map((p) => p.phone).join("\n")} label={`Copy ${phones.length} numbers`} className={`${btn} border border-ink`} />}
             </div>
@@ -96,7 +96,7 @@ function PromoForm({ values, count }: { values: Record<string, string>; count: n
           className={box} />
       </label>
       <ConfirmAction action={sendAnnouncement} values={values} formId="promo-msg" trigger={`Email ${count} past ${count === 1 ? "player" : "players"}`}
-        triggerClassName={`${btn} bg-ink text-chalk`} confirmLabel="Send to past players" title="Email past players?"
+        triggerClassName={`${btn} bg-ink text-on-ink`} confirmLabel="Send to past players" title="Email past players?"
         body={<>This goes to {count} {count === 1 ? "person" : "people"} who played your earlier tournaments. Each person gets a message once.</>} />
     </div>
   );
@@ -109,7 +109,7 @@ export default async function NotificationsPage({ params }: { params: Promise<{ 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-display text-3xl font-bold">Notifications</h2>
+        <h2 className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Notifications</h2>
         <p className="max-w-prose text-muted">Email goes from SportsHunt; WhatsApp goes from your own phone. Nobody gets the same email twice.</p>
       </div>
       {CARDS.map((c, i) => audiences[i] && <Card key={c.kind} {...c} ev={ev} people={audiences[i]} email={emailConfigured()} />)}

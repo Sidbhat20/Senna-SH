@@ -31,7 +31,7 @@ export function SwapBoard({ rows, slug }: { rows: SwapRow[]; slug: string }) {
       </p>
       <ol className="mt-2 grid gap-2 sm:grid-cols-2">
         {rows.map((r) => (
-          <li key={r.id} className="rounded-lg border border-line bg-white p-2">
+          <li key={r.id} className="rounded-lg border border-line bg-surface p-2">
             <div className="mb-1 text-[12px] text-muted">{r.label}{r.locked && `, ${r.locked}`}</div>
             {(["a", "b"] as const).map((side) => {
               const on = pick?.match === r.id && pick.side === side;
@@ -41,7 +41,7 @@ export function SwapBoard({ rows, slug }: { rows: SwapRow[]; slug: string }) {
                   onDragStart={(e) => e.dataTransfer.setData("text/plain", JSON.stringify({ match: r.id, side }))}
                   onDragOver={(e) => { if (!r.locked) e.preventDefault(); }}
                   onDrop={(e) => { e.preventDefault(); try { swap(JSON.parse(e.dataTransfer.getData("text/plain")), { match: r.id, side }); } catch { /* not one of ours */ } }}
-                  className={`block w-full truncate rounded-md px-2 py-1.5 text-left text-[15px] ${on ? "bg-ink text-chalk" : r.locked ? "text-muted" : "cursor-grab hover:bg-line/50"}`}>
+                  className={`block w-full truncate rounded-md px-2 py-1.5 text-left text-[15px] ${on ? "bg-ink text-on-ink" : r.locked ? "text-muted" : "cursor-grab hover:bg-line/50"}`}>
                   {side === "a" ? r.a : r.b}
                 </button>
               );

@@ -903,3 +903,15 @@ describe("Smart Create from a poster", () => {
     expect(Object.keys(d).sort()).toEqual(["area", "categories", "prize", "rules", "sport", "startDate", "startTime", "title", "venue"]);
   });
 });
+
+import { searchTerm } from "../organise";
+
+describe("tournament search", () => {
+  it("keeps names and places, strips anything that could change the database filter", () => {
+    expect(searchTerm("  Whitefield   Smash ")).toBe("Whitefield Smash");
+    expect(searchTerm("St. John's & Co")).toBe("St John's & Co");
+    expect(searchTerm("x%,status.eq.draft)")).toBe("x status eq draft");
+    expect(searchTerm(undefined)).toBe("");
+    expect(searchTerm("a".repeat(80)).length).toBe(60);
+  });
+});

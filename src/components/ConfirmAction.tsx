@@ -28,7 +28,7 @@ export function ConfirmAction({
       <button type="button" className={triggerClassName} onClick={() => dialog.current?.showModal()}>{trigger}</button>
       {state?.ok && <p role="status" className="basis-full text-[13px] text-turf-dark">{state.ok}</p>}
       <dialog ref={dialog} aria-labelledby={`${id}-t`} aria-describedby={`${id}-b`}
-        className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border-2 border-ink bg-white p-0 text-ink backdrop:bg-ink/50">
+        className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-line bg-surface p-0 text-ink backdrop:bg-ink/50">
         <form id={formId} action={run} className="space-y-4 p-5">
           {Object.entries({ ...values, confirm: "yes" }).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
           <h2 id={`${id}-t`} className="font-display text-2xl font-bold">{title}</h2>
@@ -38,7 +38,7 @@ export function ConfirmAction({
             <button type="button" autoFocus onClick={() => dialog.current?.close()} className="h-11 rounded-lg border border-ink px-4 font-semibold">
               Keep it
             </button>
-            <button disabled={pending} className="h-11 rounded-lg bg-danger px-4 font-semibold text-white disabled:opacity-60">{confirmLabel}</button>
+            <button disabled={pending} className="h-11 rounded-lg bg-danger px-4 font-semibold text-on-danger disabled:opacity-60">{confirmLabel}</button>
           </div>
         </form>
       </dialog>

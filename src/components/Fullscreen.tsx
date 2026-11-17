@@ -6,9 +6,9 @@ import { useRef } from "react";
 export function Fullscreen({ children, label = "Full screen" }: { children: React.ReactNode; label?: string }) {
   const box = useRef<HTMLDivElement>(null);
   return (
-    <div ref={box} className="overflow-auto bg-chalk [&:fullscreen]:p-8">
+    <div ref={box} className="overflow-auto bg-bg [&:fullscreen]:p-8">
       <button type="button" onClick={() => (document.fullscreenElement ? document.exitFullscreen() : box.current?.requestFullscreen())}
-        className="mb-3 h-9 rounded-lg border border-ink px-3 text-[14px] font-semibold print:hidden">
+        className="mb-3 h-11 rounded-lg border border-ink px-3 text-[14px] font-semibold print:hidden">
         {label}
       </button>
       {children}

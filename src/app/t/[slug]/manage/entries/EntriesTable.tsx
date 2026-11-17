@@ -15,11 +15,11 @@ export function EntriesTable({ rows, slug, drawn }: { rows: Row[]; slug: string;
   const ids = [...picked].filter((id) => rows.some((r) => r.id === id));
   const all = rows.length > 0 && ids.length === rows.length;
   const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const btn = "h-10 rounded-lg px-3 text-[15px] font-semibold disabled:opacity-50";
+  const btn = "h-11 rounded-lg px-3 text-[15px] font-semibold disabled:opacity-50";
 
   return (
     <div>
-      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-line bg-chalk py-2">
+      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-line bg-bg py-2">
         <span className="tabular mr-2 text-[15px] text-muted">{ids.length ? `${ids.length} ticked` : "Tick entries for bulk actions"}</span>
         <ActionForm action={bulkEntries} values={{ ids: ids.join(","), slug, op: "paid" }} showOk>
           <button disabled={!ids.length} className={`${btn} border border-ink`}>Mark paid (cash)</button>

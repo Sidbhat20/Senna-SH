@@ -30,7 +30,7 @@ export default async function JoinTeam({ params, searchParams }: Props) {
         <>
           <h1 className="font-display text-4xl font-bold">You&apos;re on {team.name}</h1>
           <p className="mt-2 text-muted">Your captain can see you on the roster now.</p>
-          <Link href="/tournaments" className="mt-6 inline-block rounded-md bg-ink px-5 py-3 font-semibold text-chalk hover:bg-pitch">
+          <Link href="/tournaments" className="mt-6 inline-block rounded-md chunky press bg-ink px-5 py-3 font-semibold text-on-ink hover:bg-ink/85">
             Browse tournaments
           </Link>
         </>
@@ -44,7 +44,7 @@ export default async function JoinTeam({ params, searchParams }: Props) {
           <h1 className="font-display text-4xl font-bold">Join your team</h1>
           <p className="mt-2 text-muted">Your captain invited you. Joining puts you on their roster.</p>
           <form action={join}>
-            <button className="mt-6 h-12 w-full rounded-md bg-turf px-5 font-semibold text-white hover:bg-turf-dark">Join team</button>
+            <button className="mt-6 h-12 w-full rounded-md chunky press bg-turf px-5 font-semibold text-on-turf hover:bg-turf-dark">Join team</button>
           </form>
         </>
       )}

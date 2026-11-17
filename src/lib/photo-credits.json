@@ -1,0 +1,34 @@
+[
+  {
+    "file": "/photos/hero-smash.webp",
+    "title": "Badminton player",
+    "creator": "Sabit Tisekar",
+    "license": "CC BY 2.0",
+    "license_url": "https://creativecommons.org/licenses/by/2.0/",
+    "source": "https://commons.wikimedia.org/w/index.php?curid=25559989"
+  },
+  {
+    "file": "/photos/court.webp",
+    "title": "Badminton Court at IITD",
+    "creator": "Ruturajpol",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "source": "https://commons.wikimedia.org/w/index.php?curid=184330151"
+  },
+  {
+    "file": "/photos/pickleball.webp",
+    "title": "Pickleball Pros",
+    "creator": "Picklerpeej",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "source": "https://commons.wikimedia.org/w/index.php?curid=107275576"
+  },
+  {
+    "file": "/photos/stadium.webp",
+    "title": "Falmer Stadium - night",
+    "creator": "Dominic Alves from Brighton, England",
+    "license": "CC BY 2.0",
+    "license_url": "https://creativecommons.org/licenses/by/2.0/",
+    "source": "https://commons.wikimedia.org/w/index.php?curid=16030098"
+  }
+]

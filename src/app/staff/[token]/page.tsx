@@ -39,7 +39,7 @@ export default async function StaffInvite({ params, searchParams }: Props) {
             scoring.
           </p>
           <form action={accept}>
-            <button className="mt-6 h-12 w-full rounded-lg bg-turf px-5 font-semibold text-white hover:bg-turf-dark">Accept invite</button>
+            <button className="mt-6 h-12 w-full rounded-lg chunky press bg-turf px-5 font-semibold text-on-turf hover:bg-turf-dark">Accept invite</button>
           </form>
         </>
       )}

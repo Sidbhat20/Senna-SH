@@ -5,8 +5,11 @@ import { notFound, redirect } from "next/navigation";
 import { applyCoupon, claimPayment, withdrawEntry } from "@/app/actions";
 import { ActionForm } from "@/components/ActionForm";
 import { LiveRefresh } from "@/components/LiveRefresh";
+import { LiveTicker } from "@/components/LiveTicker";
+import { sportPhoto } from "@/components/Photo";
+import { Celebration } from "@/components/rive/Celebration";
 import { PosterUpload } from "@/components/PosterUpload";
-import { ageLimitText, dateTime, feeRange, MatchRow, perEntry, scoringText, sportName, StatusPill } from "@/components/ui";
+import { ageLimitText, dateTime, feeRange, perEntry, scoringText, sportName, StatusPill } from "@/components/ui";
 import { FORMATS, getEvent, myEntries, paymentClaims, type DbMatch } from "@/lib/data";
 import { whatsappShare } from "@/lib/notify";
 import { qrPath } from "@/lib/qr";
@@ -20,7 +23,15 @@ type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ c?: st
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const t = await getEvent((await params).slug);
-  return t ? { title: t.title, description: `${sportName(t)} at ${t.venue}${t.area ? `, ${t.area}` : ""}. ${feeRange(t.categories)}.` } : {};
+  if (!t) return { title: "Page not found" };
+  const description = `${sportName(t)} at ${t.venue}${t.area ? `, ${t.area}` : ""}. ${feeRange(t.categories)}.`;
+  const unlisted = t.status === "draft" || t.status === "cancelled";
+  return {
+    title: t.title, description,
+    openGraph: { title: t.title, description, type: "website", url: `/t/${t.slug}` },
+    twitter: { card: "summary_large_image", title: t.title, description },
+    ...(unlisted ? { robots: { index: false } } : {}),
+  };
 }
 
 
@@ -29,8 +40,10 @@ export default async function EventPage({ params, searchParams }: Props) {
   if (!ev) notFound();
   const { c: catId, view } = await searchParams;
   if (view === "edit") redirect(ev.canManage ? `/t/${ev.slug}/manage/settings` : `/t/${ev.slug}`); // old Edit tab links
-  const me = await myEntries(ev);
-  const claims = ev.canManage ? await paymentClaims(ev.id) : new Map<string, Claim>();
+  const [me, claims] = await Promise.all([
+    myEntries(ev),
+    ev.canManage ? paymentClaims(ev.id) : Promise.resolve(new Map<string, Claim>()),
+  ]);
   const schedule = view === "schedule";
   const onCategory = !schedule;
   const c = ev.categories.find((x) => x.id === catId) ?? ev.categories[0];
@@ -51,66 +64,75 @@ export default async function EventPage({ params, searchParams }: Props) {
     ["Organiser", ev.organiser],
   ];
   const tab = (active: boolean) =>
-    `shrink-0 rounded-full border px-3.5 py-1.5 text-[15px] ${active ? "border-ink bg-ink text-chalk" : "border-line bg-white hover:border-ink"}`;
+    `inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-4 text-[15px] transition-colors ${active ? "border-ink bg-ink font-semibold text-on-ink" : "border-line bg-surface hover:border-ink"}`;
+
+  const ticker = live.map((m) => ({ id: m.id, label: [m.category, m.court].filter(Boolean).join(" · "), a: m.a ?? "", b: m.b ?? "", scoreA: m.scoreA, scoreB: m.scoreB, href: href(m) }));
+  const published = ev.status !== "draft" && ev.status !== "cancelled";
 
   return (
-    <div className="mx-auto max-w-6xl px-4 pt-10">
+    <>
       {(ev.status === "live" || ev.status === "open") && <LiveRefresh eventId={ev.id} />}
-      <header className="grid gap-8 md:grid-cols-[1fr_auto] md:items-start">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <StatusPill status={ev.status} />
-            <span className="text-muted">{sportName(ev)}</span>
+      <section className="relative isolate overflow-hidden text-chalk">
+        <Image src={ev.posterUrl ?? sportPhoto(ev.sport)} alt="" fill priority sizes="100vw" className={`-z-10 object-cover ${ev.posterUrl ? "blur-sm scale-105" : "photo"}`} />
+        <div aria-hidden className="absolute inset-0 -z-10 bg-gradient-to-t from-black via-black/70 to-black/35" />
+        <header className="mx-auto grid max-w-7xl gap-8 px-4 pt-16 pb-10 md:grid-cols-[1fr_auto] md:items-end md:px-6 md:pt-28">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <StatusPill status={ev.status} />
+              <span className="font-score text-[12px] uppercase tracking-[0.16em] text-chalk/80">{sportName(ev)}</span>
+            </div>
+            <h1 className="mt-4 max-w-5xl font-display text-[clamp(3.5rem,9vw,8rem)] leading-[0.86]">{ev.title}</h1>
+            <dl className="mt-8 grid max-w-4xl grid-cols-2 gap-x-8 gap-y-4 border-t border-chalk/20 pt-6 sm:grid-cols-4">
+              {facts.map(([k, v]) => (
+                <div key={k}>
+                  <dt className="font-score text-[11px] uppercase tracking-[0.16em] text-chalk/70">{k}</dt>
+                  <dd className={`mt-1 text-[15px] ${k === "First match" || k === "Entries close" ? "font-score" : "font-medium"}`}>{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-6 flex flex-wrap gap-3 print:hidden">
+              {regOpen && c && !mine && (
+                <a href="#enter" className="inline-flex h-12 items-center rounded-[6px] rounded-full bg-[#D7FF3A] px-7 text-[13px] font-semibold uppercase tracking-[0.1em] text-[#0B0B0C] press">
+                  Enter {c.name}{c.entryFee ? ` · ₹${c.entryFee.toLocaleString("en-IN")}` : " · free"}
+                </a>
+              )}
+              {ev.canManage && (
+                <Link href={`/t/${ev.slug}/manage`} className="inline-flex h-12 items-center rounded-[6px] rounded-full border border-chalk/40 px-6 text-[13px] font-semibold uppercase tracking-[0.1em] text-chalk hover:border-chalk">
+                  Manage tournament
+                </Link>
+              )}
+              {published && (
+                <a href={whatsappShare(ev)} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex h-12 items-center gap-2 rounded-[6px] rounded-full border border-chalk/40 px-6 text-[13px] font-semibold uppercase tracking-[0.1em] text-chalk hover:border-chalk">
+                  <svg aria-hidden viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4" />
+                  </svg>
+                  Share on WhatsApp
+                </a>
+              )}
+            </div>
           </div>
-          <h1 className="mt-3 max-w-3xl font-display text-[clamp(2.5rem,6vw,4.5rem)] font-bold leading-[0.95]">{ev.title}</h1>
-          <dl className="mt-6 grid max-w-4xl grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3">
-            {facts.map(([k, v]) => (
-              <div key={k}>
-                <dt className="text-[13px] text-muted">{k}</dt>
-                <dd className="font-medium">{v}</dd>
-              </div>
-            ))}
-          </dl>
-          {ev.canManage && (
-            <Link href={`/t/${ev.slug}/manage`}
-              className="mr-3 mt-5 inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-2 text-[15px] font-semibold text-chalk hover:bg-pitch print:hidden">
-              Manage tournament
-            </Link>
-          )}
-          {ev.status !== "draft" && ev.status !== "cancelled" && (
-            <a href={whatsappShare(ev)} target="_blank" rel="noopener noreferrer"
-              className="mt-5 inline-flex items-center gap-2 rounded-lg border border-ink bg-white px-4 py-2 text-[15px] font-semibold hover:bg-line/40 print:hidden">
-              Share on WhatsApp
+          {ev.posterUrl && (
+            <a href={ev.posterUrl} target="_blank" rel="noopener" className="hidden w-52 overflow-hidden rounded-[6px] border border-chalk/20 md:block" aria-label="Open the full poster">
+              <Image src={ev.posterUrl} alt={`Poster for ${ev.title}`} width={512} height={724} sizes="208px" className="h-auto w-full object-cover" />
             </a>
           )}
-          {ev.canManage && !ev.posterUrl && <div className="mt-6"><PosterUpload eventId={ev.id} hasPoster={false} /></div>}
-        </div>
-        {ev.posterUrl && (
-          <div className="w-full max-w-xs md:w-64">
-            <a href={ev.posterUrl} target="_blank" rel="noopener" className="block" aria-label="Open the full poster">
-              <Image src={ev.posterUrl} alt={`Poster for ${ev.title}`} width={512} height={724} sizes="(min-width: 768px) 256px, 320px"
-                className="h-auto w-full rounded-xl border border-line object-cover" priority />
-            </a>
-            {ev.canManage && <div className="mt-3"><PosterUpload eventId={ev.id} hasPoster /></div>}
-          </div>
-        )}
-      </header>
+        </header>
+      </section>
+      <LiveTicker items={ticker} />
+
+      <div className="mx-auto max-w-7xl px-4 pt-8 md:px-6">
+      {ev.canManage && (
+        <div className="mb-6 print:hidden"><PosterUpload eventId={ev.id} hasPoster={!!ev.posterUrl} /></div>
+      )}
 
       {ev.status === "cancelled" && (
-        <p role="status" className="mt-8 rounded-xl border-2 border-danger bg-white px-5 py-4 font-semibold text-danger">
+        <p role="status" className="mb-8 rounded-[6px] border-2 border-danger bg-surface px-5 py-4 font-semibold text-danger">
           This tournament has been cancelled. Contact {ev.organiser} about entry fees.
         </p>
       )}
 
-      {live.length > 0 && (
-        <section className="mt-8 rounded-xl border-2 border-flood bg-white px-5 py-2" aria-label="Live now">
-          <div className="divide-y divide-line">
-            {live.map((m) => <MatchRow key={m.id} m={m} label={m.category} href={href(m)} />)}
-          </div>
-        </section>
-      )}
-
-      <nav aria-label="Categories" className="mt-8 flex flex-wrap gap-2">
+      <nav aria-label="Categories" className="flex flex-wrap gap-2">
         {ev.categories.map((x) => (
           <Link key={x.id} href={`/t/${ev.slug}?c=${x.id}`} aria-current={onCategory && x.id === c?.id ? "page" : undefined}
             className={tab(onCategory && x.id === c?.id)}>
@@ -146,10 +168,10 @@ export default async function EventPage({ params, searchParams }: Props) {
             <div className="min-w-0"><CategoryView ev={ev} c={c} href={href} /></div>
             <aside className="space-y-8">
               {(regOpen || mine) && (
-                <div className="rounded-xl border border-line bg-white p-5">
+                <div id="enter" className="scroll-mt-24 rounded-[6px] chunky bg-surface p-5">
                   {mine ? (
                     <>
-                      <div className="font-display text-2xl font-bold">{mine.status !== "pending" ? "You're in" : mine.paymentStatus === "claimed" ? "Paid, awaiting confirmation" : "Registered, payment due"}</div>
+                      <div className="font-display text-2xl font-extrabold">{mine.status !== "pending" ? "You're in" : mine.paymentStatus === "claimed" ? "Paid, awaiting confirmation" : "Registered, payment due"}</div>
                       {mine.status === "pending" && (
                         <div className="mt-2 space-y-3 text-[15px]">
                           {mine.paymentStatus === "unpaid" && (
@@ -161,7 +183,7 @@ export default async function EventPage({ params, searchParams }: Props) {
                               <ActionForm action={applyCoupon} values={{ entry: mine.id, slug: ev.slug }} showOk className="mt-2">
                                 <input name="code" maxLength={20} autoComplete="off" aria-label="Discount code"
                                   className="min-w-0 flex-1 rounded-lg border border-line px-3 py-2 uppercase focus:border-ink focus:outline-none" />
-                                <button className="h-10 rounded-lg border border-ink px-3 font-semibold disabled:opacity-60">Apply</button>
+                                <button className="h-11 rounded-lg border border-ink px-3 font-semibold disabled:opacity-60">Apply</button>
                               </ActionForm>
                             </details>
                           )}
@@ -173,37 +195,38 @@ export default async function EventPage({ params, searchParams }: Props) {
                           {mine.paymentStatus === "claimed" ? (
                             <p className="text-muted">The organiser has your UPI reference and will confirm your place once they see the payment.</p>
                           ) : ev.upiId ? (
-                            <>
-                              <a href={payLink!}
-                                className="block rounded-lg bg-turf px-5 py-3 text-center font-semibold text-white hover:bg-turf-dark">
-                                Pay ₹{amountDue(c, mine).toLocaleString("en-IN")} with UPI
+                            <div className="space-y-3 rounded-[6px] border border-line bg-surface-2 p-3">
+                              <ol className="space-y-1 text-[14px] font-medium">
+                                <li><span className="font-score font-extrabold text-turf">1.</span> Pay <strong>₹{amountDue(c, mine).toLocaleString("en-IN")}</strong> to <strong>{ev.upiId}</strong></li>
+                                <li><span className="font-score font-extrabold text-turf">2.</span> Add the note <strong className="font-score">{payRef(mine.id)}</strong></li>
+                                <li><span className="font-score font-extrabold text-turf">3.</span> Paste the UTR from your UPI app below</li>
+                              </ol>
+                              <a href={payLink!} className="flex h-12 items-center justify-center rounded-[6px] chunky press bg-turf px-5 font-bold text-on-turf">
+                                Open UPI app · ₹{amountDue(c, mine).toLocaleString("en-IN")}
                               </a>
-                              <div className="flex items-center gap-4">
+                              <div className="flex items-center gap-3">
                                 {(() => {
                                   const qr = qrPath(payLink!);
                                   return (
-                                    <svg viewBox={`0 0 ${qr.size} ${qr.size}`} width={132} height={132} shapeRendering="crispEdges" role="img"
-                                      aria-label={`QR code to pay ₹${amountDue(c, mine).toLocaleString("en-IN")} to ${ev.upiId}`} className="shrink-0 rounded-md border border-line">
+                                    <svg viewBox={`0 0 ${qr.size} ${qr.size}`} width={116} height={116} shapeRendering="crispEdges" role="img"
+                                      aria-label={`QR code to pay ₹${amountDue(c, mine).toLocaleString("en-IN")} to ${ev.upiId}`} className="shrink-0 rounded-[6px] border border-line">
                                       <rect width={qr.size} height={qr.size} fill="#fff" />
-                                      <path d={qr.d} fill="#17251b" />
+                                      <path d={qr.d} fill="#1B1B1F" />
                                     </svg>
                                   );
                                 })()}
-                                <p className="text-muted">
-                                  Scan with any UPI app, or pay <strong className="text-ink">₹{amountDue(c, mine).toLocaleString("en-IN")}</strong> to{" "}
-                                  <strong className="text-ink">{ev.upiId}</strong> with the note <strong className="text-ink">{payRef(mine.id)}</strong>.
-                                </p>
+                                <p className="text-[14px] text-muted">On a laptop? Scan this with GPay, PhonePe or Paytm on your phone.</p>
                               </div>
-                            </>
+                            </div>
                           ) : (
                             <p className="text-muted">Pay {perEntry(c).toLowerCase()} to the organiser. They&apos;ll confirm your place.</p>
                           )}
                           {ev.upiId && (
-                            <ActionForm action={claimPayment} values={{ entry: mine.id, slug: ev.slug }} showOk>
+                            <ActionForm action={claimPayment} values={{ entry: mine.id, slug: ev.slug }} showOk success={<Celebration title="Payment sent!" />}>
                               <input name="ref" inputMode="numeric" maxLength={40} required aria-label="UPI reference (UTR)"
                                 placeholder={mine.paymentStatus === "claimed" ? "Wrong UTR? Send it again" : "UTR from your UPI app"}
                                 className="min-w-0 flex-1 rounded-lg border border-line px-3 py-2 focus:border-ink focus:outline-none" />
-                              <button className="h-10 rounded-lg border border-ink px-3 font-semibold disabled:opacity-60">I&apos;ve paid</button>
+                              <button className="h-11 rounded-lg border border-ink px-3 font-semibold disabled:opacity-60">I&apos;ve paid</button>
                             </ActionForm>
                           )}
                         </div>
@@ -225,7 +248,7 @@ export default async function EventPage({ params, searchParams }: Props) {
                                   {c.entryFee > 0 && " Refunds are up to the organiser."}
                                 </span>
                               </label>
-                              <button className="h-10 rounded-lg px-3 text-[15px] font-semibold text-danger hover:bg-danger/10 disabled:opacity-60">
+                              <button className="h-11 rounded-lg px-3 text-[15px] font-semibold text-danger hover:bg-danger/10 disabled:opacity-60">
                                 Withdraw
                               </button>
                             </div>
@@ -239,14 +262,14 @@ export default async function EventPage({ params, searchParams }: Props) {
                     </>
                   ) : (
                     <>
-                      <div className="font-display text-2xl font-bold">{left > 0 ? `${left} ${left === 1 ? "spot" : "spots"} left` : "Full"}</div>
+                      <div className="font-display text-2xl font-extrabold">{left > 0 ? `${left} ${left === 1 ? "spot" : "spots"} left` : "Full"}</div>
                       <p className="mt-1 text-[15px] text-muted">{perEntry(c)}. Entries close {dateTime(ev.regClosesAt)}.</p>
                       {left > 0 &&
                         (me.loggedIn ? (
                           <RegisterForm category={c.id} slug={ev.slug} kind={c.entryType} aged={!!(c.bornOnOrAfter || c.bornOnOrBefore)} ageHint={ageLimitText(c)} fields={ev.regFields} paid={c.entryFee > 0} />
                         ) : (
                           <Link href={`/login?next=${encodeURIComponent(`/t/${ev.slug}?c=${c.id}`)}`}
-                            className="mt-4 block rounded-lg bg-turf px-5 py-3 text-center font-semibold text-white hover:bg-turf-dark">
+                            className="mt-4 block rounded-lg chunky press bg-turf px-5 py-3 text-center font-semibold text-on-turf hover:bg-turf-dark">
                             Log in to register
                           </Link>
                         ))}
@@ -256,14 +279,14 @@ export default async function EventPage({ params, searchParams }: Props) {
               )}
               {ev.rules.length > 0 && (
                 <section>
-                  <h2 className="font-display text-xl font-semibold">Rules</h2>
+                  <h2 className="font-display text-xl font-bold">Rules</h2>
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-[15px]">
                     {ev.rules.map((r) => <li key={r}>{r}</li>)}
                   </ul>
                 </section>
               )}
               <section>
-                <h2 className="font-display text-xl font-semibold">{c.entries.length} of {c.maxEntries} entered</h2>
+                <h2 className="font-display text-xl font-bold">{c.entries.length} of {c.maxEntries} entered</h2>
                 {c.entries.length === 0 ? (
                   <p className="mt-1 text-[15px] text-muted">No one yet. Share this page to get the first entries.</p>
                 ) : (
@@ -285,5 +308,6 @@ export default async function EventPage({ params, searchParams }: Props) {
         <p className="mt-8 text-muted">This tournament has no categories yet.</p>
       )}
     </div>
+    </>
   );
 }

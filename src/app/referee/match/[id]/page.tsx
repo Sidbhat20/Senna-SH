@@ -30,14 +30,14 @@ export default async function RefereeMatch({ params }: { params: Promise<{ id: s
       <Link href={`/t/${t.slug}`} className="text-[15px] text-muted underline-offset-4 hover:underline">
         {t.title}
       </Link>
-      <h1 className="mt-1 font-display text-3xl font-bold">{category.name}, {label}</h1>
+      <h1 className="mt-1 font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">{category.name}, {label}</h1>
       <p className="text-muted">
         {[m.court, m.at && time(m.at), t.venue].filter(Boolean).join(", ")}
       </p>
 
       <div className="mt-6">
         {!canScore ? (
-          <p className="rounded-xl border border-line bg-white p-5">
+          <p className="rounded-[6px] border border-line bg-surface p-5">
             Only the organiser and the referee for this court can score this match.
           </p>
         ) : ready ? (
@@ -56,7 +56,7 @@ export default async function RefereeMatch({ params }: { params: Promise<{ id: s
             backHref={`/t/${t.slug}?c=${category.id}`}
           />
         ) : (
-          <p className="rounded-xl border border-line bg-white p-5">
+          <p className="rounded-[6px] border border-line bg-surface p-5">
             This match is waiting for the winners of earlier rounds. It opens for scoring once both sides are known.
           </p>
         )}

@@ -19,3 +19,9 @@ export function filterEvents<T extends { title: string; sport: string; status: S
   const q = (f.q ?? "").trim().toLowerCase();
   return events.filter((e) => (!q || e.title.toLowerCase().includes(q)) && (!f.sport || e.sport === f.sport) && (!f.status || e.status === f.status));
 }
+
+/** A visitor's search text, made safe for a PostgREST or() filter: letters, digits, spaces and a few name
+ *  characters only (commas, brackets, dots and % would change the filter's meaning). Empty means no search. */
+export function searchTerm(q: unknown): string {
+  return String(q ?? "").replace(/[^\p{L}\p{N} '&-]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+}

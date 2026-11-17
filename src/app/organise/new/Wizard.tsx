@@ -122,8 +122,8 @@ function validate(step: number, d: Draft): Record<string, string> {
   return e;
 }
 
-const box = "block w-full rounded-lg border border-line bg-white px-3 py-3 text-base outline-none focus:border-ink aria-[invalid=true]:border-danger";
-const pill = (on: boolean) => `rounded-full border px-3 py-1 text-[14px] ${on ? "border-ink bg-ink text-chalk" : "border-line bg-white hover:border-ink"}`;
+const box = "line-input text-[1.25rem] font-medium tracking-[-0.01em]";
+const pill = (on: boolean) => `rounded-full border px-3 py-1 text-[14px] ${on ? "border-ink bg-ink text-on-ink" : "border-line bg-surface hover:border-ink"}`;
 
 function Label({ text, hint, error, id, children }: { text: string; hint?: string; error?: string; id?: string; children: React.ReactNode }) {
   return (
@@ -151,11 +151,11 @@ function Choice<T extends string | number>({
             key={String(o.value)}
             className={`relative cursor-pointer rounded-lg border-2 text-left has-[:focus-visible]:outline has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-flood ${
               size === "sm" ? "px-3 py-2" : "px-4 py-3"
-            } ${on ? "border-ink bg-ink text-chalk" : "border-line bg-white hover:border-ink"}`}
+            } ${on ? "border-ink chunky press bg-ink text-on-ink" : "border-line bg-surface hover:border-ink"}`}
           >
             <input type="radio" name={name} checked={on} onChange={() => onChange(o.value)} className="sr-only" />
             <span className={`block font-semibold ${size === "sm" ? "text-[15px]" : ""}`}>{o.label}</span>
-            {o.sub && <span className={`mt-0.5 block text-[14px] ${on ? "text-chalk/75" : "text-muted"}`}>{o.sub}</span>}
+            {o.sub && <span className={`mt-0.5 block text-[14px] ${on ? "text-on-ink/75" : "text-muted"}`}>{o.sub}</span>}
           </label>
         );
       })}
@@ -168,7 +168,7 @@ function Digits({ id, value, onChange, prefix, suffix, invalid, placeholder, lab
   id?: string; value: string; onChange: (v: string) => void; prefix?: string; suffix?: string; invalid?: boolean; placeholder?: string; label?: string;
 }) {
   return (
-    <div className={`flex items-center rounded-lg border bg-white focus-within:border-ink ${invalid ? "border-danger" : "border-line"}`}>
+    <div className={`flex items-center rounded-lg border bg-surface focus-within:border-ink ${invalid ? "border-danger" : "border-line"}`}>
       {prefix && <span className="pl-3 text-lg text-muted">{prefix}</span>}
       <input
         id={id} aria-label={label} inputMode="numeric" autoComplete="off" placeholder={placeholder} value={value} aria-invalid={invalid}
@@ -189,9 +189,9 @@ function CategoryCard({ c, sport, open, error, onOpen, onChange, onRemove }: {
   const u = scoreUnits(sport);
   if (!open) {
     return (
-      <li className={`flex items-center gap-3 rounded-xl border bg-white px-4 py-3 ${error ? "border-danger" : "border-line"}`}>
+      <li className={`flex items-center gap-3 rounded-xl border bg-surface px-4 py-3 ${error ? "border-danger" : "border-line"}`}>
         <div className="min-w-0 flex-1">
-          <div className="truncate font-display text-xl font-semibold">{c.name || "Unnamed category"}</div>
+          <div className="truncate font-display text-xl font-bold">{c.name || "Unnamed category"}</div>
           <div className="text-[14px] text-muted">{describe(c, sport)}</div>
           {error && <div className="text-[14px] text-danger">{error}</div>}
         </div>
@@ -200,7 +200,7 @@ function CategoryCard({ c, sport, open, error, onOpen, onChange, onRemove }: {
     );
   }
   return (
-    <li className="space-y-5 rounded-xl border-2 border-ink bg-white p-4">
+    <li className="space-y-5 rounded-xl border border-line bg-surface p-4">
       <div className="flex items-end gap-3">
         <div className="flex-1">
           <Label text="Category name" id={`n${c.key}`}>
@@ -394,19 +394,30 @@ export function Wizard({ initial, initialPoster }: { initial?: PosterDraft; init
 
   return (
     <div>
-      <ol className="flex gap-2" aria-label="Steps">
+      <ol className="grid grid-cols-4 gap-1 rounded-[6px] bg-pitch p-1.5 text-chalk" aria-label="Steps">
         {STEPS.map((s, i) => (
           <li key={s} aria-current={i === step ? "step" : undefined}
-            className={`flex-1 border-t-4 pt-2 text-[14px] font-medium ${i <= step ? "border-turf text-ink" : "border-line text-muted"}`}>
-            <span className="tabular mr-1">{i + 1}</span>
-            {s}
+            className={`rounded-[6px] px-2 py-2 text-center transition-colors duration-[250ms] ${i === step ? "bg-flood text-on-flood" : i < step ? "bg-turf/30 text-chalk" : "text-chalk/70"}`}>
+            <span className="font-score block text-[12px] font-bold">{i < step ? "Done" : `0${i + 1}`}</span>
+            <span className="block truncate text-[14px] font-semibold">{s}</span>
           </li>
         ))}
       </ol>
 
       <form
-        className="mt-8 space-y-7"
+        className="mt-10 space-y-10"
         noValidate
+        onKeyDown={(e) => {
+          // Enter walks through the step's fields; on the last one it submits (next step), as before.
+          const t = e.target as HTMLElement;
+          if (e.key !== "Enter" || t.tagName !== "INPUT" || (t as HTMLInputElement).type === "checkbox" || (t as HTMLInputElement).type === "radio") return;
+          const fields = [...e.currentTarget.querySelectorAll<HTMLElement>("input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not(:disabled), select, textarea")];
+          const after = fields[fields.indexOf(t) + 1];
+          if (!after) return;
+          e.preventDefault();
+          after.focus({ preventScroll: true });
+          after.scrollIntoView({ behavior: "smooth", block: "center" });
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           if (step < STEPS.length - 1) next();
@@ -445,7 +456,7 @@ export function Wizard({ initial, initialPoster }: { initial?: PosterDraft; init
         {step === 1 && (
           <>
             <div>
-              <h2 className="font-display text-2xl font-bold">Categories</h2>
+              <h2 className="font-display text-2xl font-extrabold">Categories</h2>
               <p className="text-muted">Each category is its own draw with its own entries, fee and bracket.</p>
             </div>
             {d.categories.length > 0 && (
@@ -521,7 +532,7 @@ export function Wizard({ initial, initialPoster }: { initial?: PosterDraft; init
 
         {step === 3 && (
           <>
-            <dl className="grid gap-x-8 gap-y-3 rounded-xl border border-line bg-white p-5 sm:grid-cols-2">
+            <dl className="grid gap-x-8 gap-y-3 rounded-[6px] border border-line bg-surface p-5 sm:grid-cols-2">
               {[
                 ["Name", d.title],
                 ["Sport", d.sport ? SPORTS[d.sport] : ""],
@@ -541,7 +552,7 @@ export function Wizard({ initial, initialPoster }: { initial?: PosterDraft; init
                   <ul className="mt-1 space-y-0.5">
                     {d.categories.map((x) => (
                       <li key={x.key}>
-                        <span className="font-medium">{x.name}</span>
+                        <span className="block text-[14px] text-muted">{x.name}</span>
                         <span className="text-muted">, {describe(x, sport).toLowerCase()}</span>
                       </li>
                     ))}
@@ -556,7 +567,7 @@ export function Wizard({ initial, initialPoster }: { initial?: PosterDraft; init
                   <img src={poster.preview} alt="Poster preview" className="h-40 w-auto rounded-lg border border-line object-cover" />
                 )}
                 <div className="flex flex-col gap-2">
-                  <label className="inline-flex cursor-pointer items-center rounded-lg border border-ink bg-white px-4 py-2.5 font-semibold has-[:focus-visible]:outline has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-flood">
+                  <label className="inline-flex cursor-pointer items-center rounded-lg border border-ink bg-surface px-4 py-2.5 font-semibold has-[:focus-visible]:outline has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-flood">
                     <input id="poster" type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => choosePoster(e.target.files?.[0])} />
                     {poster ? "Choose another" : "Choose an image"}
                   </label>
@@ -583,7 +594,7 @@ export function Wizard({ initial, initialPoster }: { initial?: PosterDraft; init
             <button type="button" onClick={() => setStep((s) => s - 1)} className="h-12 rounded-lg border border-ink px-5 font-semibold">Back</button>
           )}
           <button type="submit" disabled={pending}
-            className="h-12 flex-1 rounded-lg bg-turf px-6 font-semibold text-white hover:bg-turf-dark disabled:opacity-60 sm:flex-none">
+            className="h-12 flex-1 rounded-lg chunky press bg-turf px-6 font-semibold text-on-turf hover:bg-turf-dark disabled:opacity-60 sm:flex-none">
             {step < STEPS.length - 1 ? `Next: ${STEPS[step + 1]}` : pending ? "Publishing…" : "Publish tournament"}
           </button>
         </div>

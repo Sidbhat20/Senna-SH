@@ -1,0 +1,10 @@
+# Local-only folders: Vercel builds from source
+.next
+.next-build
+.impeccable
+.ruff_cache
+.playwright-mcp
+tsconfig.tsbuildinfo
+# Secrets stay local; Vercel has its own environment variables
+.env.local
+.env*.local

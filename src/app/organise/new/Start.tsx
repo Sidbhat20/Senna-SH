@@ -34,21 +34,21 @@ export function Start() {
   if (mode.kind === "poster") {
     return (
       <div className="space-y-6">
-        <p role="status" className="rounded-xl border-2 border-flood bg-white px-4 py-3 text-[15px]">{mode.note}</p>
+        <p role="status" className="rounded-xl border-2 border-flood bg-surface px-4 py-3 text-[15px]">{mode.note}</p>
         <Wizard initial={mode.draft} initialPoster={mode.file} />
       </div>
     );
   }
 
-  const card = "block w-full rounded-xl border-2 border-ink bg-white p-5 text-left hover:bg-line/30 disabled:opacity-60";
+  const card = "block w-full rounded-[6px] border border-line bg-surface p-5 shadow-sm text-left hover:bg-line/30 disabled:opacity-60";
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <button type="button" className={card} onClick={() => setMode({ kind: "manual" })} disabled={busy}>
-        <span className="block font-display text-2xl font-bold">Create manually</span>
+        <span className="block font-display text-2xl font-extrabold">Create manually</span>
         <span className="mt-1 block text-[15px] text-muted">Pick the sport, categories and courts step by step.</span>
       </button>
       <label className={`${card} cursor-pointer has-[:focus-visible]:outline has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-flood`}>
-        <span className="block font-display text-2xl font-bold">{busy ? "Reading your poster…" : "Create from a poster"}</span>
+        <span className="block font-display text-2xl font-extrabold">{busy ? "Reading your poster…" : "Create from a poster"}</span>
         <span className="mt-1 block text-[15px] text-muted">
           Upload the poster you already made. We fill in the name, venue, dates and categories, and you check everything before publishing.
         </span>

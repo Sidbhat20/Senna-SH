@@ -7,11 +7,11 @@ export { roundName }; // lives in lib/fixtures/rounds so pure code and tests can
 
 function Slot({ name, score, won, done }: { name: string | null; score?: number; won: boolean; done: boolean }) {
   return (
-    <div className={`flex items-center justify-between gap-3 px-3 py-1.5 ${done && !won ? "text-chalk/55" : "text-chalk"}`}>
-      <span className={`truncate text-[14px] ${won ? "font-semibold" : ""} ${!name ? "italic text-chalk/40" : ""}`}>
+    <div className={`flex items-center justify-between gap-3 px-3 py-1.5 ${done && !won ? "text-muted" : "text-ink"}`}>
+      <span className={`truncate text-[14px] ${won ? "font-semibold" : ""} ${!name ? "italic text-muted" : ""}`}>
         {name === BYE ? "Bye" : name ?? "Waiting"}
       </span>
-      <span className={`tabular font-display text-lg leading-none ${won ? "font-bold text-flood" : ""}`}>{score ?? ""}</span>
+      <span className={`font-score text-lg font-bold leading-none ${won ? "text-turf" : ""}`}>{score ?? ""}</span>
     </div>
   );
 }
@@ -20,18 +20,18 @@ function Box({ m, href }: { m: Played; href?: string }) {
   const live = m.status === "live";
   const done = m.status === "done";
   const inner = (
-    <div className={`relative w-52 divide-y divide-chalk/10 rounded-md bg-pitch-2 ring-1 ${live ? "ring-flood" : "ring-chalk/15"}`}>
+    <div className={`relative w-52 divide-y-2 divide-turf/30 rounded-[6px] border-2 bg-surface ${live ? "border-clay" : "border-turf"}`}>
       <Slot name={m.a} score={m.scoreA} won={done && m.winner === m.a} done={done} />
       <Slot name={m.b} score={m.scoreB} won={done && m.winner === m.b} done={done} />
       {live && (
-        <span className="absolute -top-2.5 right-2 flex items-center gap-1 rounded-full bg-flood px-1.5 text-[11px] font-bold text-ink">
+        <span className="absolute -top-2.5 right-2 flex items-center gap-1 rounded-full border border-line bg-clay px-1.5 text-[11px] font-bold text-on-clay">
           <span className="live-dot size-1.5 rounded-full bg-ink" aria-hidden /> Live
         </span>
       )}
     </div>
   );
   return href ? (
-    <Link href={href} className="block rounded-md hover:brightness-125" aria-label={`${m.a ?? "TBD"} v ${m.b ?? "TBD"}`}>
+    <Link href={href} className="block rounded-[6px] press" aria-label={`${m.a ?? "TBD"} v ${m.b ?? "TBD"}`}>
       {inner}
     </Link>
   ) : (
@@ -44,7 +44,7 @@ function Cell<M extends Played>({ m, hrefFor, hideBye, lead }: { m: M; hrefFor?:
   if (hideBye && m.walkover) return <div className="h-[58px] w-52" aria-hidden />;
   return (
     <div className="relative">
-      {lead && <span aria-hidden className="absolute top-1/2 -left-5 w-5 border-t border-chalk/30" />}
+      {lead && <span aria-hidden className="absolute top-1/2 -left-5 w-5 border-t-2 border-turf/60" />}
       <Box m={m} href={hrefFor?.(m)} />
     </div>
   );
@@ -58,13 +58,13 @@ function Arm({ topHidden, bottomHidden }: { topHidden: boolean; bottomHidden: bo
     : bottomHidden
       ? "top-1/4 bottom-1/2 border-t rounded-tr"
       : "top-1/4 bottom-1/4 border-y rounded-r";
-  return <span aria-hidden className={`pointer-events-none absolute -right-5 w-5 border-r border-chalk/30 ${shape}`} />;
+  return <span aria-hidden className={`pointer-events-none absolute -right-5 w-5 border-r-2 border-turf/60 ${shape}`} />;
 }
 
 const chunk =<T,>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
 
 /**
- * One bracket stage as chalk lines on a pitch-green board.
+ * One bracket stage as court-green lines on cream.
  * Connectors are drawn for 2-into-1 brackets (knockout, winners); the losers bracket is shown without them.
  */
 export function Bracket<M extends Played>({
@@ -86,11 +86,11 @@ export function Bracket<M extends Played>({
   const joined = stage === "knockout" || stage === "winners";
 
   return (
-    <div className="overflow-x-auto rounded-xl bg-pitch p-5">
+    <div className="overflow-x-auto rounded-[6px] border border-line bg-bg p-5">
       <div className="flex w-max gap-10">
         {byRound.map((col, ri) => (
           <section key={ri} aria-label={roundName(stage, ri + 1, rounds)} className="flex flex-col">
-            <h3 className="mb-3 font-display text-sm font-semibold text-chalk/70">{roundName(stage, ri + 1, rounds)}</h3>
+            <h3 className="mb-3 text-[12px] font-bold uppercase tracking-[0.06em] text-turf">{roundName(stage, ri + 1, rounds)}</h3>
             <div className="flex flex-col" style={{ height }}>
               {joined && ri < rounds - 1
                 ? chunk(col, 2).map((pair, pi) => (

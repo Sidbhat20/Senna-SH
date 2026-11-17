@@ -1,46 +1,198 @@
 @import "tailwindcss";
 
-/* inline: font vars come from next/font on <html>, so resolve them where used, not on :root */
-@theme inline {
-  --color-turf: #2e9a2c;
-  --color-turf-dark: #1f7a1e;
-  --color-pitch: #0f3b1e;
-  --color-pitch-2: #164a28;
-  --color-chalk: #f6f7f1;
-  --color-ink: #17251b;
-  --color-muted: #5b6a5f;
-  --color-line: #d6ddcf;
-  --color-flood: #f5c518;
-  --color-danger: #b42318;
-  --font-sans: var(--font-barlow), system-ui, sans-serif;
-  --font-display: var(--font-barlow-condensed), var(--font-barlow), sans-serif;
+/* SportsHunt design tokens (performance + broadcast): one dark theme, neon accents. Tailwind reads the variables through @theme inline, so every utility follows the active theme.
+   theme-contrast.test.ts parses this file and checks every text/background pair against WCAG AA. */
+
+:root {
+  --bg: #0B0B0C;
+  --surface: #141518;
+  --surface-2: #1C1E22;
+  --ink: #F2F0EB;
+  --muted: #A3A6AE;
+  --line: #2A2C33;
+  --turf: #D7FF3A;
+  --turf-hover: #E6FF7A;
+  --turf-soft: #1F2410;
+  --on-turf: #0B0B0C;
+  --on-ink: #0B0B0C;
+  --pitch: #0B0B0C;
+  --pitch-2: #141518;
+  --flood: #D7FF3A;
+  --on-flood: #0B0B0C;
+  --clay: #E10600;
+  --on-clay: #FFFFFF;
+  --sky: #5CB8FF;
+  --danger: #FF6B6B;
+  --on-danger: #0B0B0C;
+  --chalk-text: #F2F0EB;
+  --shadow-color: transparent;
+  color-scheme: dark;
 }
 
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-chalk: var(--chalk-text); /* text on dark photo scrims and boards; light in both themes */
+  --color-chalk-text: var(--chalk-text);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-turf: var(--turf);
+  --color-turf-hover: var(--turf-hover);
+  --color-turf-dark: var(--turf-hover);
+  --color-turf-soft: var(--turf-soft);
+  --color-on-turf: var(--on-turf);
+  --color-on-ink: var(--on-ink);
+  --color-pitch: var(--pitch);
+  --color-pitch-2: var(--pitch-2);
+  --color-flood: var(--flood);
+  --color-on-flood: var(--on-flood);
+  --color-clay: var(--clay);
+  --color-on-clay: var(--on-clay);
+  --color-sky: var(--sky);
+  --color-danger: var(--danger);
+  --color-on-danger: var(--on-danger);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--font-anton), Impact, sans-serif;
+  --font-score: var(--font-plex-mono), ui-monospace, monospace;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 999px;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-hard: none;
+  --shadow-hard-lg: none;
+  --shadow-live: 0 0 0 1px var(--clay);
+  --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root {
+  --motion-fast: 150ms;
+  --motion-med: 250ms;
+  --motion-slow: 500ms;
+}
+
+/* House surfaces: a hairline rule, no shadow. */
+@utility chunky {
+  border: 1px solid var(--line);
+}
+/* Buttons: a quiet lift on hover, a 1px settle on press. */
+@utility press {
+  transition: filter var(--motion-fast) ease, transform var(--motion-fast) ease, border-color var(--motion-fast) ease;
+  &:hover { filter: brightness(1.08); }
+  &:active { transform: translateY(1px); }
+}
+/* Cards: the rule brightens and the card rises a touch. */
+@utility tilt {
+  transition: transform var(--motion-med) var(--ease-out-expo), border-color var(--motion-med) ease;
+  &:hover { transform: translateY(-3px); border-color: var(--muted); }
+}
+/* Calm areas (organiser workspace, create flow): headings in the UI face, sentence case, no condensed capitals. */
+.calm .font-display {
+  font-family: var(--font-sans);
+  text-transform: none;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+/* Form fields: no box, one hairline that settles to ink on focus (the underline is the focus indicator). */
+@utility line-input {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.65rem 0;
+  font-size: 1.0625rem;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 300ms var(--ease-out-expo), box-shadow 300ms var(--ease-out-expo);
+  &:hover { border-bottom-color: var(--muted); }
+  &:focus { border-bottom-color: var(--ink); box-shadow: 0 1px 0 0 var(--ink); }
+  &:focus-visible { outline: none; }
+  &[aria-invalid="true"] { border-bottom-color: var(--danger); box-shadow: 0 1px 0 0 var(--danger); }
+}
+
+/* Dropdowns: the closed field matches the underline inputs, with our own slim chevron. The open list is drawn by
+   the OS (the native picker on phones, which is the right thing there); we only theme its colours. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 1.75rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23A3A6AE' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.25rem center;
+  background-size: 12px 8px;
+  cursor: pointer;
+}
+select option { background: var(--surface); color: var(--ink); }
+
+/* Photography is shown in high-contrast monochrome so every source reads as one shoot. */
+@utility photo {
+  filter: grayscale(1) contrast(1.15) brightness(0.92);
+}
+
+html { background: var(--bg); }
 body {
-  background: var(--color-chalk);
-  color: var(--color-ink);
+  background: var(--bg);
+  color: var(--ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* Scores and any number that changes must not jitter. */
-.tabular {
-  font-variant-numeric: tabular-nums;
-}
+::selection { background: var(--flood); color: var(--on-flood); }
+input, textarea, select { caret-color: var(--flood); }
+::placeholder { color: var(--muted); opacity: 1; }
+a { text-underline-offset: 0.2em; }
 
-:focus-visible {
-  outline: 3px solid var(--color-flood);
-  outline-offset: 2px;
+.tabular, .font-score { font-variant-numeric: tabular-nums; }
+
+/* Display type: condensed capitals, like a kit number or a stadium board. */
+.font-display { text-transform: uppercase; letter-spacing: 0.005em; font-weight: 400; }
+
+/* Underline fields show focus with their own line, so they skip the ring. */
+:focus-visible:not(.line-input) {
+  outline: 2px solid var(--flood);
+  outline-offset: 3px;
   border-radius: 4px;
 }
+.bg-flood:focus-visible, .bg-turf:focus-visible { outline-color: var(--ink); }
 
-/* The one ambient motion: the floodlight dot on live matches. */
-@keyframes flood {
-  50% { opacity: 0.35; }
+@keyframes pulse-dot { 50% { opacity: 0.3; } }
+.live-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
+
+@keyframes rise { from { opacity: 0.001; transform: translateY(16px); } }
+.rise { animation: rise var(--motion-slow) var(--ease-out-expo) both; }
+
+@keyframes flip {
+  from { transform: perspective(400px) rotateX(-70deg); opacity: 0.2; }
+  to { transform: perspective(400px) rotateX(0); opacity: 1; }
 }
-.live-dot {
-  animation: flood 1.6s ease-in-out infinite;
-}
+.flip { display: inline-block; animation: flip 240ms var(--ease-out-expo) both; transform-origin: 50% 0; }
+
+@keyframes ticker { to { transform: translateX(-50%); } }
+.ticker { animation: ticker 40s linear infinite; }
+
 @media (prefers-reduced-motion: reduce) {
-  .live-dot { animation: none; }
+  .live-dot, .rise, .ticker, .flip { animation: none; }
+  *, *::before, *::after {
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  :root {
+    --bg: #FFFFFF; --surface: #FFFFFF; --surface-2: #F2F2F2; --ink: #000000; --muted: #333333; --line: #BBBBBB;
+    --pitch: #FFFFFF; --pitch-2: #FFFFFF; --chalk-text: #000000; --turf: #000000; --on-turf: #FFFFFF; --on-ink: #FFFFFF;
+  }
+  html, body { background: #fff !important; color: #000 !important; }
+  .bg-pitch, .bg-pitch-2 { border: 1px solid #bbb; }
+  .photo { display: none; }
 }

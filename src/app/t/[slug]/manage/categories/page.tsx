@@ -8,8 +8,8 @@ const STATUS_TEXT: Record<string, string> = {
   open: "Taking entries", locked: "Entries closed", live: "Being played", completed: "Finished", cancelled: "Cancelled", draft: "Draft",
 };
 const WHO: Record<string, string> = { solo: "Singles", pair: "Pairs", team: "Teams" };
-const box = "block w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-ink focus:outline-none";
-const btn = "h-10 rounded-lg px-3 text-[15px] font-semibold disabled:opacity-60";
+const box = "line-input";
+const btn = "h-11 rounded-full px-4 text-[15px] font-semibold disabled:opacity-60";
 
 export default async function CategoriesPage({ params }: { params: Promise<{ slug: string }> }) {
   const ev = (await getEvent((await params).slug))!;
@@ -17,7 +17,7 @@ export default async function CategoriesPage({ params }: { params: Promise<{ slu
   return (
     <div className="space-y-10">
       <section aria-labelledby="cats">
-        <h2 id="cats" className="font-display text-3xl font-bold">Categories</h2>
+        <h2 id="cats" className="font-display text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.05]">Categories</h2>
         <p className="max-w-prose text-muted">
           Name, fee and entry limit can change until a category&apos;s fixtures are drawn. Format and who enters stay as published.
           The fee is fixed once someone has paid.
@@ -53,14 +53,14 @@ export default async function CategoriesPage({ params }: { params: Promise<{ slu
                   </>}
                   panel={editable ? (
                     <ActionForm action={updateCategory} values={{ category: c.id, slug: ev.slug }} showOk className="max-w-2xl">
-                      <div className="grid w-full gap-3 rounded-xl border border-line bg-white p-4 sm:grid-cols-[2fr_1fr_1fr_auto] sm:items-end">
+                      <div className="grid w-full gap-3 rounded-[6px] border border-line bg-surface p-4 sm:grid-cols-[2fr_1fr_1fr_auto] sm:items-end">
                         <label><span className="text-[13px] text-muted">Name</span>
                           <input name="name" defaultValue={c.name} required minLength={2} maxLength={60} className={box} /></label>
                         <label><span className="text-[13px] text-muted">Fee (₹, 0 = free)</span>
                           <input name="fee" inputMode="numeric" defaultValue={c.entryFee} className={box} /></label>
                         <label><span className="text-[13px] text-muted">Max entries</span>
                           <input name="max" inputMode="numeric" defaultValue={c.maxEntries} className={box} /></label>
-                        <button className={`${btn} bg-ink text-chalk`}>Save</button>
+                        <button className={`${btn} bg-ink text-on-ink`}>Save</button>
                       </div>
                     </ActionForm>
                   ) : undefined}
@@ -73,29 +73,29 @@ export default async function CategoriesPage({ params }: { params: Promise<{ slu
 
       {canAdd && (
         <section aria-labelledby="add" className="max-w-2xl">
-          <h2 id="add" className="font-display text-2xl font-bold">Add a category</h2>
+          <h2 id="add" className="font-display text-2xl font-extrabold">Add a category</h2>
           <p className="text-muted">It opens for entries straight away, with the event&apos;s closing time.</p>
           <ActionForm action={addCategory} values={{ event: ev.id, slug: ev.slug, sport: ev.sport }} showOk className="mt-3">
-            <div className="grid w-full gap-3 rounded-xl border border-line bg-white p-4 sm:grid-cols-2">
-              <label className="sm:col-span-2"><span className="font-medium">Name</span>
+            <div className="grid w-full gap-3 rounded-[6px] border border-line bg-surface p-4 sm:grid-cols-2">
+              <label className="sm:col-span-2"><span className="block text-[14px] text-muted">Name</span>
                 <input name="name" required minLength={2} maxLength={60} placeholder="e.g. Women's Doubles" className={box} /></label>
-              <label><span className="font-medium">Format</span>
+              <label><span className="block text-[14px] text-muted">Format</span>
                 <select name="format" className={box} defaultValue="knockout">
                   {Object.entries(FORMATS).map(([k, f]) => <option key={k} value={k}>{f.label}</option>)}
                 </select></label>
-              <label><span className="font-medium">Who enters</span>
+              <label><span className="block text-[14px] text-muted">Who enters</span>
                 <select name="entry_type" className={box} defaultValue="solo">
                   <option value="solo">Singles</option><option value="pair">Pairs</option><option value="team">Teams</option>
                 </select></label>
-              <label><span className="font-medium">Max entries</span>
+              <label><span className="block text-[14px] text-muted">Max entries</span>
                 <input name="max" inputMode="numeric" defaultValue={16} required className={box} /></label>
-              <label><span className="font-medium">Fee (₹, 0 for free)</span>
+              <label><span className="block text-[14px] text-muted">Fee (₹, 0 for free)</span>
                 <input name="fee" inputMode="numeric" defaultValue={0} required className={box} /></label>
-              <label><span className="font-medium">Groups</span><span className="block text-[13px] text-muted">Groups + knockout only</span>
+              <label><span className="block text-[14px] text-muted">Groups</span><span className="block text-[13px] text-muted">Groups + knockout only</span>
                 <input name="groups" inputMode="numeric" defaultValue={4} className={box} /></label>
-              <label><span className="font-medium">Players per team</span><span className="block text-[13px] text-muted">Teams only</span>
+              <label><span className="block text-[14px] text-muted">Players per team</span><span className="block text-[13px] text-muted">Teams only</span>
                 <input name="team_size" inputMode="numeric" defaultValue={2} className={box} /></label>
-              <button className="h-11 rounded-lg bg-turf px-4 font-semibold text-white hover:bg-turf-dark disabled:opacity-60 sm:col-span-2">Add category</button>
+              <button className="h-11 rounded-lg chunky press bg-turf px-4 font-semibold text-on-turf hover:bg-turf-dark disabled:opacity-60 sm:col-span-2">Add category</button>
             </div>
           </ActionForm>
         </section>
